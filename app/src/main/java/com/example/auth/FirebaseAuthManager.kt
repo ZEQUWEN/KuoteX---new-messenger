@@ -73,7 +73,7 @@ object FirebaseAuthManager {
         return try {
             val credentialManager = CredentialManager.create(context)
             // Use the client ID from your google-services.json oauth_client type 3 (Web client)
-            val webClientId = "372420700937-dummyclientidforauth.apps.googleusercontent.com"
+            val webClientId = "569998216528-agka411di74nreb5nriikvntkmvcico2.apps.googleusercontent.com"
             
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)

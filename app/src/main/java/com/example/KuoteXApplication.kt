@@ -90,11 +90,11 @@ class KuoteXApplication : Application(), ImageLoaderFactory {
                         FirebaseOptions.fromResource(this)
                     } catch (e: Exception) {
                         FirebaseOptions.Builder()
-                            .setApplicationId("1:1086187753295:android:b4f79bfa9c8e463f50bf3a")
-                            .setApiKey("AIzaSyCNigsYj2MRPd9E2SL1Zo49PxMTfuMQYAs")
-                            .setProjectId("kuotex-96819")
-                            .setGcmSenderId("1086187753295")
-                            .setStorageBucket("kuotex-96819.firebasestorage.app")
+                            .setApplicationId("1:569998216528:android:a370acf3e6a6724eaf7055")
+                            .setApiKey("AIzaSyBQoNsb5IVcmPU3ztjxBTSY-gUujxDa48E")
+                            .setProjectId("gen-lang-client-0549680815")
+                            .setGcmSenderId("569998216528")
+                            .setStorageBucket("gen-lang-client-0549680815.firebasestorage.app")
                             .build()
                     }
                     if (options != null) {
