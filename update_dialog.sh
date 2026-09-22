@@ -1,0 +1,5 @@
+sed -i '/OutlinedTextField(/,/modifier = Modifier.fillMaxWidth()/ {
+  s/value = username,/value = username,/
+  s/onValueChange = { username = it },/onValueChange = {\n                            username = it\n                            if (it.length < 5 \&\& it.isNotEmpty()) {\n                                usernameError = "Username must be at least 5 characters"\n                            } else if (!it.matches(Regex("^[a-zA-Z0-9_]+$")) \&\& it.isNotEmpty()) {\n                                usernameError = "Invalid characters"\n                            } else if (it == "admin" || it == "system") {\n                                usernameError = "Username is already taken"\n                            } else {\n                                usernameError = null\n                            }\n                        },/
+  s/modifier = Modifier.fillMaxWidth()/modifier = Modifier.fillMaxWidth(),\n                        isError = usernameError != null,\n                        supportingText = { usernameError?.let { Text(it) } }/
+}' app/src/main/java/com/example/ui/MainScreen.kt

@@ -1,0 +1,6 @@
+1. API for creating and managing bots: Done (Bot.kt, BotRegistry.kt, BotService.kt, BOT_API_README.md)
+2. Test console UI: Done (SandboxScreen.kt)
+3. Webhook system: Done (BotFather.kt)
+4. Message search and filter system: Done (ChatScreen.kt)
+5. Enter and exit animations: Done (ChatScreen.kt)
+6. Timestamp display in bubble: Done (ChatScreen.kt)

@@ -1,0 +1,98 @@
+@Composable
+fun CreateChatDialog(
+    isGroup: Boolean,
+    onDismiss: () -> Unit,
+    onCreate: (name: String, description: String, photoUri: String, isPrivate: Boolean, usernameOrLink: String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var photoUri by remember { mutableStateOf("") }
+    var isPrivate by remember { mutableStateOf(false) }
+    var username by remember { mutableStateOf("") }
+    var generatedLink by remember { mutableStateOf("https://t.me/joinchat/${java.util.UUID.randomUUID().toString().take(8)}") }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isGroup) "Create Group" else "Create Channel") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                    if (photoUri.isEmpty()) {
+                        IconButton(
+                            onClick = { photoUri = "https://picsum.photos/seed/${java.util.UUID.randomUUID()}/200" },
+                            modifier = Modifier.size(80.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                        ) {
+                            Icon(Icons.Filled.CameraAlt, contentDescription = "Select Photo", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    } else {
+                        coil.compose.AsyncImage(
+                            model = photoUri,
+                            contentDescription = "Selected Photo",
+                            modifier = Modifier.size(80.dp).clip(CircleShape).clickable { photoUri = "https://picsum.photos/seed/${java.util.UUID.randomUUID()}/200" },
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    }
+                }
+                
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                )
+                
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    maxLines = 3
+                )
+                
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                    Text("Private ${if(isGroup) "Group" else "Channel"}", modifier = Modifier.weight(1f))
+                    Switch(checked = isPrivate, onCheckedChange = { 
+                        isPrivate = it
+                        if (it) generatedLink = "https://t.me/joinchat/${java.util.UUID.randomUUID().toString().take(8)}"
+                    })
+                }
+                
+                if (isPrivate) {
+                    OutlinedTextField(
+                        value = generatedLink,
+                        onValueChange = {},
+                        label = { Text("Invite Link") },
+                        modifier = Modifier.fillMaxWidth(),
+                        readOnly = true
+                    )
+                    Text("People can only join via this link.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text("@username") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Public ${if(isGroup) "groups" else "channels"} can be found in search.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val linkOrUsername = if (isPrivate) generatedLink else username
+                    onCreate(name, description, photoUri, isPrivate, linkOrUsername)
+                    onDismiss()
+                },
+                enabled = name.isNotBlank() && (isPrivate || username.isNotBlank())
+            ) {
+                Text("Create")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}

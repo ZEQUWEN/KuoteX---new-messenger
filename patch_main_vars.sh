@@ -1,0 +1,2 @@
+sed -i 's/val accounts by viewModel.accounts.collectAsState()/val accounts by viewModel.accounts.collectAsState()\n    val isAddingAccount by viewModel.isAddingAccount.collectAsState()/g' app/src/main/java/com/example/ui/MainScreen.kt
+sed -i 's/val isAuthComplete = activeAccount != null && requires2FA == null/val isAuthComplete = activeAccount != null && requires2FA == null && !isAddingAccount/g' app/src/main/java/com/example/ui/MainScreen.kt

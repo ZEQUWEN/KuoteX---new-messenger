@@ -1,0 +1,13 @@
+    fun createChat(name: String, description: String, photoUri: String, isPrivate: Boolean, linkOrUsername: String, isGroup: Boolean, isChannel: Boolean) {
+        viewModelScope.launch {
+            val chat = Chat(
+                id = java.util.UUID.randomUUID().toString(),
+                title = name,
+                isGroup = isGroup,
+                isChannel = isChannel,
+                lastMessage = if (isGroup) "Group created" else "Channel created",
+                unreadCount = 0
+            )
+            repository.insertChat(chat)
+        }
+    }

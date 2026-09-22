@@ -1,0 +1,18 @@
+            if (showCreateGroupDialog) {
+                CreateChatDialog(
+                    isGroup = true,
+                    onDismiss = { showCreateGroupDialog = false },
+                    onCreate = { name, desc, photo, isPrivate, linkOrUsername ->
+                        viewModel.createChat(name, desc, photo, isPrivate, linkOrUsername, isGroup = true, isChannel = false)
+                    }
+                )
+            }
+            if (showCreateChannelDialog) {
+                CreateChatDialog(
+                    isGroup = false,
+                    onDismiss = { showCreateChannelDialog = false },
+                    onCreate = { name, desc, photo, isPrivate, linkOrUsername ->
+                        viewModel.createChat(name, desc, photo, isPrivate, linkOrUsername, isGroup = false, isChannel = true)
+                    }
+                )
+            }

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<defaultsMap>
+    <!-- Feature Flags -->
+    <entry>
+        <key>feature_stories_enabled</key>
+        <value>true</value>
+    </entry>
+    <entry>
+        <key>feature_voice_video_calls</key>
+        <value>true</value>
+    </entry>
+    <entry>
+        <key>feature_bot_store</key>
+        <value>true</value>
+    </entry>
+    <entry>
+        <key>feature_scheduled_messages</key>
+        <value>true</value>
+    </entry>
+    <entry>
+        <key>feature_neon_particles</key>
+        <value>true</value>
+    </entry>
+    <entry>
+        <key>feature_web_apps</key>
+        <value>true</value>
+    </entry>
+
+    <!-- Operational App Parameters -->
+    <entry>
+        <key>maintenance_mode</key>
+        <value>false</value>
+    </entry>
+    <entry>
+        <key>maintenance_message</key>
+        <value>Приложение находится на плановом обслуживании. Скоро вернемся!</value>
+    </entry>
+    <entry>
+        <key>min_required_version</key>
+        <value>1</value>
+    </entry>
+    <entry>
+        <key>announcement_banner_text</key>
+        <value></value>
+    </entry>
+    <entry>
+        <key>announcement_banner_url</key>
+        <value></value>
+    </entry>
+    <entry>
+        <key>max_attachment_size_mb</key>
+        <value>25</value>
+    </entry>
+    <entry>
+        <key>chat_sync_interval_seconds</key>
+        <value>15</value>
+    </entry>
+    <entry>
+        <key>support_contact_username</key>
+        <value>@support</value>
+    </entry>
+    <entry>
+        <key>welcome_message</key>
+        <value>Добро пожаловать в KuoteX Messenger!</value>
+    </entry>
+</defaultsMap>

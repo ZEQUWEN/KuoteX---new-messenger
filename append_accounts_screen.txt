@@ -1,0 +1,68 @@
+
+@Composable
+fun SettingsAccountsScreen(viewModel: AppViewModel, navController: NavController) {
+    val accounts by viewModel.accounts.collectAsState()
+    val activeAccount = LocalActiveAccount.current ?: return
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Accounts") },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }
+            )
+        }
+    ) { padding ->
+        LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
+            items(accounts) { account ->
+                val isCurrent = account.id == activeAccount.id
+                ListItem(
+                    headlineContent = { Text(account.displayName) },
+                    supportingContent = { Text(account.username) },
+                    leadingContent = {
+                        AsyncImage(
+                            model = account.profilePicUrl,
+                            contentDescription = "Avatar",
+                            modifier = Modifier.size(40.dp).clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    },
+                    trailingContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isCurrent) {
+                                Icon(Icons.Filled.Check, contentDescription = "Active", tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            // 2FA toggle
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("2FA", style = MaterialTheme.typography.labelSmall)
+                                Switch(
+                                    checked = account.is2FAEnabled,
+                                    onCheckedChange = { viewModel.toggle2FA(account.id, it) },
+                                    modifier = Modifier.scale(0.8f)
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.clickable {
+                        if (!isCurrent) {
+                            viewModel.switchAccount(account.id)
+                        }
+                    }
+                )
+                HorizontalDivider()
+            }
+            item {
+                ListItem(
+                    headlineContent = { Text("Add Account") },
+                    leadingContent = { Icon(Icons.Filled.Add, null) },
+                    modifier = Modifier.clickable {
+                        viewModel.addAccountAction()
+                        navController.navigate("auth") {
+                            popUpTo(0)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}

@@ -1,0 +1,246 @@
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsMenuScreen(viewModel: AppViewModel, navController: NavController) {
+    val activeAccount = LocalActiveAccount.current ?: return
+    val accounts by viewModel.accounts.collectAsState()
+    var showLogoutConfirmDialog by remember { mutableStateOf(false) }
+    
+    var isSearchMode by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
+
+    if (showLogoutConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirmDialog = false },
+            title = { Text("Log Out") },
+            text = { Text("Are you sure you want to log out from this account?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLogoutConfirmDialog = false
+                    viewModel.logout()
+                    navController.popBackStack()
+                }) {
+                    Text("Log Out", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            if (isSearchMode) {
+                TopAppBar(
+                    title = {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search settings...") },
+                            modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent
+                            )
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { 
+                            isSearchMode = false 
+                            searchQuery = ""
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                )
+            } else {
+                TopAppBar(
+                    title = { 
+                        Text(
+                            "Neon Messenger",
+                            modifier = Modifier.alpha(if (scrollBehavior.state.collapsedFraction < 0.5f) 1f - scrollBehavior.state.collapsedFraction * 2 else 0f)
+                        ) 
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { isSearchMode = true }) {
+                            Icon(Icons.Filled.Search, contentDescription = "Search")
+                        }
+                        IconButton(onClick = { showLogoutConfirmDialog = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    scrollBehavior = scrollBehavior
+                )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
+        if (isSearchMode && searchQuery.isNotEmpty()) {
+            val query = searchQuery.lowercase()
+            val allSettings = listOf(
+                Pair("Аккаунт", "settings/profile"),
+                Pair("Настройки чатов", "settings/themes"),
+                Pair("Конфиденциальность", "settings/security"),
+                Pair("Уведомления", "settings/general"),
+                Pair("Данные и память", "settings/storage"),
+                Pair("Папки с чатами", ""),
+                Pair("Устройства", "settings/devices"),
+                Pair("Энергосбережение", "settings/battery"),
+                Pair("Язык", "settings/language")
+            )
+            val filtered = allSettings.filter { it.first.lowercase().contains(query) }
+            
+            LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
+                items(filtered) { item ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            if (item.second.isNotEmpty()) {
+                                navController.navigate(item.second)
+                                isSearchMode = false
+                                searchQuery = ""
+                            }
+                        }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(item.first, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
+            // Profile section
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box {
+                    val imageUrl = activeAccount.profilePicUrl.ifEmpty { "https://picsum.photos/seed/${activeAccount.id}/150" }
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = "Avatar",
+                        modifier = Modifier.size(100.dp).clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = (-4).dp, y = (-4).dp)
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF3B82F6))
+                            .border(2.dp, MaterialTheme.colorScheme.background, CircleShape)
+                            .clickable { navController.navigate("settings/profile") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.PhotoCamera, contentDescription = "Change photo", tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = activeAccount.displayName.uppercase(),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                val phoneNumber = "+7 (922) 669-26-82" // Dummy phone number as requested to match style
+                val usernameText = if(activeAccount.username.startsWith("@")) activeAccount.username else "@${activeAccount.username}"
+                Text(
+                    text = "$phoneNumber • $usernameText",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            // Accounts Block
+            Text(
+                "Аккаунты", 
+                modifier = Modifier.padding(start = 24.dp, bottom = 8.dp), 
+                color = MaterialTheme.colorScheme.primary, 
+                style = MaterialTheme.typography.titleMedium
+            )
+            
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column {
+                    accounts.forEachIndexed { index, account ->
+                        val isCurrent = account.id == activeAccount.id
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (!isCurrent) {
+                                        viewModel.switchAccount(account.id)
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val accountImageUrl = account.profilePicUrl.ifEmpty { "https://picsum.photos/seed/${account.id}/100" }
+                            AsyncImage(
+                                model = accountImageUrl,
+                                contentDescription = "Avatar",
+                                modifier = Modifier.size(40.dp).clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = account.displayName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                            )
+                            if (isCurrent) {
+                                Icon(Icons.Filled.Check, contentDescription = "Active", tint = MaterialTheme.colorScheme.primary)
+                            } else {
+                                Icon(Icons.Filled.KeyboardArrowRight, contentDescription = "Switch", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.addAccountAction() }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add Account", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = "Добавить аккаунт",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant

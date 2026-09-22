@@ -1,0 +1,1 @@
+sed -i 's/modifier = Modifier.fillMaxWidth()/modifier = Modifier.fillMaxWidth(),\n                        isError = usernameError != null,\n                        supportingText = { usernameError?.let { Text(it) } }/g' app/src/main/java/com/example/ui/MainScreen.kt
