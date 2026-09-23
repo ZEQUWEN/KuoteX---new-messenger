@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity() {
 
         super.onCreate(savedInstanceState)
 
-        // Asynchronously initialize Firebase services for a smooth launch experience
+        // Asynchronously initialize Firebase services and background jobs for a smooth launch experience
         lifecycleScope.launch(Dispatchers.Default) {
             try {
                 if (FirebaseApp.getApps(applicationContext).isEmpty()) {
@@ -138,10 +138,6 @@ class MainActivity : ComponentActivity() {
                 com.example.config.FirebaseRemoteConfigManager.init(applicationContext)
             } catch (e: Exception) {
                 Log.w("Firebase", "Async Firebase init: ${e.message}")
-            } finally {
-                withContext(Dispatchers.Main) {
-                    isAppReady = true
-                }
             }
         }
 
@@ -166,35 +162,34 @@ class MainActivity : ComponentActivity() {
 
             val appContainer = com.example.di.Injector.get()
             val db = appContainer.database
-            val sharedPrefs = appContainer.sharedPreferences
-            val repository = appContainer.messengerRepository
-            val userPrefs = appContainer.userPreferencesRepository
-
             com.example.ui.botapi.BotRegistry.init(db.botDao())
             
-            // Setup WorkManager for edge cases (background sync)
-            val workRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.data.MessageSyncWorker>(
-                15, java.util.concurrent.TimeUnit.MINUTES
-            ).build()
-            androidx.work.WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
-                "MessageSync",
-                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-                workRequest
-            )
-            
-            val cacheCleanupRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.data.CacheCleanupWorker>(
-                7, java.util.concurrent.TimeUnit.DAYS
-            ).build()
-            androidx.work.WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
-                "CacheCleanup",
-                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-                cacheCleanupRequest
-            )
-            
-            // Start presence background worker
-            try {
-                com.example.ui.PresenceManager.updatePresence(applicationContext, "current_user_id", true)
-            } catch(e: Exception) { e.printStackTrace() }
+            // Offload periodic background workers and presence setup off the main thread
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val workRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.data.MessageSyncWorker>(
+                        15, java.util.concurrent.TimeUnit.MINUTES
+                    ).build()
+                    androidx.work.WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+                        "MessageSync",
+                        androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                        workRequest
+                    )
+                    
+                    val cacheCleanupRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.data.CacheCleanupWorker>(
+                        7, java.util.concurrent.TimeUnit.DAYS
+                    ).build()
+                    androidx.work.WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+                        "CacheCleanup",
+                        androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                        cacheCleanupRequest
+                    )
+                    
+                    com.example.ui.PresenceManager.updatePresence(applicationContext, "current_user_id", true)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             
             viewModel.checkAutoTheme()
 
@@ -245,6 +240,9 @@ class MainActivity : ComponentActivity() {
 
             enableEdgeToEdge()
             setContent {
+                LaunchedEffect(Unit) {
+                    isAppReady = true
+                }
                 val primaryColorLong by viewModel.customPrimaryColor.collectAsState()
                 val secondaryColorLong by viewModel.customSecondaryColor.collectAsState()
                 

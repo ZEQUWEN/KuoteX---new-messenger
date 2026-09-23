@@ -192,13 +192,16 @@ fun MainAppNavigation(viewModel: AppViewModel = koinViewModel()) {
     var storageAlertMessage by remember { mutableStateOf("") }
     
     LaunchedEffect(Unit) {
+        // Run asynchronously with a delay so it does not block or compete during initial frame rendering
+        kotlinx.coroutines.delay(2000)
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                fun getFolderSize(file: java.io.File): Long {
+                fun getFolderSize(file: java.io.File, maxDepth: Int = 3, currentDepth: Int = 0): Long {
+                    if (currentDepth > maxDepth || !file.exists()) return 0L
                     var size: Long = 0
                     if (file.isDirectory) {
                         file.listFiles()?.forEach {
-                            size += getFolderSize(it)
+                            size += getFolderSize(it, maxDepth, currentDepth + 1)
                         }
                     } else {
                         size = file.length()
@@ -206,7 +209,8 @@ fun MainAppNavigation(viewModel: AppViewModel = koinViewModel()) {
                     return size
                 }
                 
-                val dbSize = getFolderSize(context.getDatabasePath("messenger_db").parentFile ?: context.filesDir)
+                val dbParent = context.getDatabasePath("messenger_db").parentFile ?: context.filesDir
+                val dbSize = getFolderSize(dbParent)
                 val cacheSize = getFolderSize(context.cacheDir)
                 val totalAppSize = dbSize + cacheSize
                 
@@ -1049,7 +1053,10 @@ fun ChatListScreen(
     val storiesHeightPx = with(density) { storiesHeightDp.toPx() }
     val searchHeightPx = with(density) { searchBarHeightDp.toPx() }
 
-    val headerOffsetAnimatable = remember { Animatable(0f) }
+    // Start with stories hidden (-storiesHeightPx) unless expanded
+    val headerOffsetAnimatable = remember { 
+        Animatable(if (isStoryExpanded) 0f else -storiesHeightPx) 
+    }
 
     // Search bar unfolds between -maxHeaderHeightPx and -storiesHeightPx
     val searchFraction by remember {
@@ -1065,33 +1072,50 @@ fun ChatListScreen(
         }
     }
 
-    // Connect to nested scroll for buttery smooth continuous physics without jitter
-    // Unconditionally expands when scrolling up and collapses when scrolling down!
-    val nestedScrollConnection = remember(maxHeaderHeightPx) {
+    // True spring specification matching Telegram / iOS bouncy overscroll physics
+    val springSpec = remember {
+        spring<Float>(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
+    }
+
+    // Strict scroll physics:
+    // 1. Stories panel ONLY opens when user is scrolled all the way to the top (firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0).
+    // 2. Scrolling down (delta < 0, list moves up) immediately collapses stories with snappy spring.
+    // 3. Middle-of-the-list scrolling up scrolls the chat list without erratic stories panel bouncing or stutter.
+    val nestedScrollConnection = remember(maxHeaderHeightPx, storiesHeightPx, safeTabIndex) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
+                val currentOffset = headerOffsetAnimatable.value
 
-                // Scrolling DOWN (delta < 0, finger moving up):
-                // If header is not yet fully collapsed, smoothly collapse it first
-                if (delta < 0f && headerOffsetAnimatable.value > -maxHeaderHeightPx) {
-                    val newOffset = (headerOffsetAnimatable.value + delta).coerceIn(-maxHeaderHeightPx, 0f)
-                    val consumedY = newOffset - headerOffsetAnimatable.value
+                // Scrolling DOWN (delta < 0, finger dragging up):
+                // If stories panel is open (offset > -storiesHeightPx), immediately collapse it first!
+                if (delta < 0f && currentOffset > -storiesHeightPx) {
+                    val newOffset = (currentOffset + delta).coerceIn(-storiesHeightPx, 0f)
+                    val consumedY = newOffset - currentOffset
                     coroutineScope.launch {
                         headerOffsetAnimatable.snapTo(newOffset)
+                    }
+                    if (newOffset <= -storiesHeightPx && isStoryExpanded) {
+                        onStoryExpandedChange(false)
                     }
                     return Offset(0f, consumedY)
                 }
 
-                // Scrolling UP (delta > 0, finger moving down):
-                // "вне зависимости от условия, всегда плавно раскрывалась панель с группой аватарок историй при скроллинге вверх"
-                if (delta > 0f && headerOffsetAnimatable.value < 0f) {
-                    val newOffset = (headerOffsetAnimatable.value + delta).coerceIn(-maxHeaderHeightPx, 0f)
-                    val consumedY = newOffset - headerOffsetAnimatable.value
-                    coroutineScope.launch {
-                        headerOffsetAnimatable.snapTo(newOffset)
+                // If user scrolls down deeper and search bar is open, allow collapsing search
+                if (delta < 0f && currentOffset > -maxHeaderHeightPx && currentOffset <= -storiesHeightPx) {
+                    val currentListState = tabListStates[safeTabIndex]
+                    val isScrolledPastTop = (currentListState?.firstVisibleItemIndex ?: 0) > 1
+                    if (isScrolledPastTop) {
+                        val newOffset = (currentOffset + delta).coerceIn(-maxHeaderHeightPx, -storiesHeightPx)
+                        val consumedY = newOffset - currentOffset
+                        coroutineScope.launch {
+                            headerOffsetAnimatable.snapTo(newOffset)
+                        }
+                        return Offset(0f, consumedY)
                     }
-                    return Offset(0f, consumedY)
                 }
 
                 return Offset.Zero
@@ -1099,37 +1123,56 @@ fun ChatListScreen(
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
-                if (delta > 0f && headerOffsetAnimatable.value < 0f) {
-                    val newOffset = (headerOffsetAnimatable.value + delta).coerceIn(-maxHeaderHeightPx, 0f)
-                    val consumedY = newOffset - headerOffsetAnimatable.value
+                val currentOffset = headerOffsetAnimatable.value
+
+                // ONLY when user is at the very top of the chat list:
+                val currentListState = tabListStates[safeTabIndex]
+                val isAtVeryTop = (currentListState?.firstVisibleItemIndex ?: 0) == 0 &&
+                        (currentListState?.firstVisibleItemScrollOffset ?: 0) == 0
+
+                // Scrolling UP (delta > 0, finger dragging down) when at the absolute top of the list:
+                // Smoothly pull down to reveal stories & streams with natural resistance
+                if (delta > 0f && isAtVeryTop && currentOffset < 0f) {
+                    val resistance = if (currentOffset > -storiesHeightPx) 0.75f else 1.0f
+                    val newOffset = (currentOffset + delta * resistance).coerceIn(-maxHeaderHeightPx, 0f)
+                    val consumedY = (newOffset - currentOffset) / resistance
                     coroutineScope.launch {
                         headerOffsetAnimatable.snapTo(newOffset)
                     }
                     return Offset(0f, consumedY)
                 }
+
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
                 val currentOffset = headerOffsetAnimatable.value
-                if (currentOffset < 0f && currentOffset > -maxHeaderHeightPx) {
-                    if (available.y > 350f) {
-                        // Flinging down (scrolling up): smoothly spring fully open!
-                        headerOffsetAnimatable.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                val currentListState = tabListStates[safeTabIndex]
+                val isAtVeryTop = (currentListState?.firstVisibleItemIndex ?: 0) == 0 &&
+                        (currentListState?.firstVisibleItemScrollOffset ?: 0) == 0
+
+                // If currently between hidden and open stories panel:
+                if (currentOffset > -storiesHeightPx && currentOffset < 0f) {
+                    if (available.y < -200f) {
+                        // Flinging up (swiping down): snap stories shut!
+                        headerOffsetAnimatable.animateTo(-storiesHeightPx, springSpec)
+                        onStoryExpandedChange(false)
                         return available
-                    } else if (available.y < -350f) {
-                        // Flinging up (scrolling down): smoothly spring fully closed!
-                        headerOffsetAnimatable.animateTo(-maxHeaderHeightPx, spring(stiffness = Spring.StiffnessMediumLow))
+                    } else if (available.y > 200f && isAtVeryTop) {
+                        // Flinging down (pulling down at top): spring open!
+                        headerOffsetAnimatable.animateTo(0f, springSpec)
+                        onStoryExpandedChange(true)
                         return available
                     } else {
-                        // Three-stage snap based on current resting position:
-                        val target = when {
-                            currentOffset > -storiesHeightPx * 0.45f -> 0f
-                            currentOffset > -maxHeaderHeightPx * 0.75f -> -storiesHeightPx
-                            else -> -maxHeaderHeightPx
-                        }
-                        headerOffsetAnimatable.animateTo(target, spring(stiffness = Spring.StiffnessMediumLow))
+                        // Position-based spring threshold (40% open threshold)
+                        val target = if (currentOffset > -storiesHeightPx * 0.6f && isAtVeryTop) 0f else -storiesHeightPx
+                        headerOffsetAnimatable.animateTo(target, springSpec)
+                        onStoryExpandedChange(target == 0f)
                     }
+                } else if (currentOffset < -storiesHeightPx && currentOffset > -maxHeaderHeightPx) {
+                    // Search bar snap
+                    val target = if (currentOffset > -maxHeaderHeightPx + searchHeightPx * 0.5f) -storiesHeightPx else -maxHeaderHeightPx
+                    headerOffsetAnimatable.animateTo(target, springSpec)
                 }
                 return super.onPreFling(available)
             }
@@ -1145,16 +1188,15 @@ fun ChatListScreen(
     }
 
     LaunchedEffect(isStoryExpanded) {
-        if (isStoryExpanded) {
-            headerOffsetAnimatable.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-        } else {
-            headerOffsetAnimatable.animateTo(-storiesHeightPx, spring(stiffness = Spring.StiffnessMediumLow))
+        val target = if (isStoryExpanded) 0f else -storiesHeightPx
+        if (headerOffsetAnimatable.targetValue != target) {
+            headerOffsetAnimatable.animateTo(target, springSpec)
         }
     }
 
     LaunchedEffect(currentQuery) {
         if (currentQuery.isNotBlank()) {
-            headerOffsetAnimatable.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+            headerOffsetAnimatable.animateTo(-storiesHeightPx, springSpec)
         }
     }
 
@@ -1162,7 +1204,7 @@ fun ChatListScreen(
         if (requestSearchFocus) {
             coroutineScope.launch {
                 tabListStates[safeTabIndex]?.animateScrollToItem(0)
-                headerOffsetAnimatable.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                headerOffsetAnimatable.animateTo(-storiesHeightPx, springSpec)
                 kotlinx.coroutines.delay(100)
                 try {
                     searchFocusRequester.requestFocus()

@@ -478,13 +478,9 @@ fun StoriesPanel(
         }
     }
 
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) {
-            onStorySwipe(true)
-        } else if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
-            onStorySwipe(false)
-        }
-    }
+    // Horizontal scroll inside stories panel shouldn't toggle the vertical stories panel visibility
+    // The panel visibility is governed strictly by the chat list vertical scroll physics and conditions
+
 
     LazyRow(
         state = listState,
