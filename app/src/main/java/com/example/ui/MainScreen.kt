@@ -1072,7 +1072,7 @@ fun ChatListScreen(
         }
     }
 
-    // True spring specification matching Telegram / iOS bouncy overscroll physics
+    // Telegram-style spring specification: fluid, bouncy yet responsive
     val springSpec = remember {
         spring<Float>(
             dampingRatio = Spring.DampingRatioLowBouncy,
@@ -1080,10 +1080,15 @@ fun ChatListScreen(
         )
     }
 
-    // Strict scroll physics:
-    // 1. Stories panel ONLY opens when user is scrolled all the way to the top (firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0).
-    // 2. Scrolling down (delta < 0, list moves up) immediately collapses stories with snappy spring.
-    // 3. Middle-of-the-list scrolling up scrolls the chat list without erratic stories panel bouncing or stutter.
+    // Telegram "Pull-to-Reveal" Stories Panel Mechanics:
+    // 1. Stories panel ONLY reveals when the user pulls down at the very top of the chat list
+    //    (firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0).
+    // 2. While pulling down at the top, a gentle rubber-band resistance is applied.
+    // 3. When released:
+    //    - If pulled past 35% of the panel height OR with positive downward velocity (> 180f), it springs fully OPEN with overshoot.
+    //    - Otherwise, it springs cleanly back SHUT.
+    // 4. Any upward scroll (delta < 0) immediately collapses the stories panel with snappy spring physics.
+    // 5. In-between list scrolling operates completely undisturbed with zero jitter or premature panel expansion.
     val nestedScrollConnection = remember(maxHeaderHeightPx, storiesHeightPx, safeTabIndex) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -1104,7 +1109,7 @@ fun ChatListScreen(
                     return Offset(0f, consumedY)
                 }
 
-                // If user scrolls down deeper and search bar is open, allow collapsing search
+                // If user scrolls down deeper past top items, collapse search bar if expanded
                 if (delta < 0f && currentOffset > -maxHeaderHeightPx && currentOffset <= -storiesHeightPx) {
                     val currentListState = tabListStates[safeTabIndex]
                     val isScrolledPastTop = (currentListState?.firstVisibleItemIndex ?: 0) > 1
@@ -1125,15 +1130,17 @@ fun ChatListScreen(
                 val delta = available.y
                 val currentOffset = headerOffsetAnimatable.value
 
-                // ONLY when user is at the very top of the chat list:
+                // Strictly check if the list is at the absolute top
                 val currentListState = tabListStates[safeTabIndex]
                 val isAtVeryTop = (currentListState?.firstVisibleItemIndex ?: 0) == 0 &&
                         (currentListState?.firstVisibleItemScrollOffset ?: 0) == 0
 
-                // Scrolling UP (delta > 0, finger dragging down) when at the absolute top of the list:
-                // Smoothly pull down to reveal stories & streams with natural resistance
+                // When user drags DOWN at the very top (available.y > 0):
+                // Expand stories panel with Telegram-like tactile elastic resistance
                 if (delta > 0f && isAtVeryTop && currentOffset < 0f) {
-                    val resistance = if (currentOffset > -storiesHeightPx) 0.75f else 1.0f
+                    val progress = ((currentOffset + storiesHeightPx) / storiesHeightPx).coerceIn(0f, 1f)
+                    // Dynamic resistance: easier at beginning (0.85), gently firmer towards fully opened (0.55)
+                    val resistance = 0.85f - (0.3f * progress)
                     val newOffset = (currentOffset + delta * resistance).coerceIn(-maxHeaderHeightPx, 0f)
                     val consumedY = (newOffset - currentOffset) / resistance
                     coroutineScope.launch {
@@ -1151,23 +1158,25 @@ fun ChatListScreen(
                 val isAtVeryTop = (currentListState?.firstVisibleItemIndex ?: 0) == 0 &&
                         (currentListState?.firstVisibleItemScrollOffset ?: 0) == 0
 
-                // If currently between hidden and open stories panel:
+                // If currently between hidden (-storiesHeightPx) and fully open (0f):
                 if (currentOffset > -storiesHeightPx && currentOffset < 0f) {
-                    if (available.y < -200f) {
-                        // Flinging up (swiping down): snap stories shut!
+                    if (available.y < -150f) {
+                        // Flinging up: snap stories shut immediately
                         headerOffsetAnimatable.animateTo(-storiesHeightPx, springSpec)
                         onStoryExpandedChange(false)
                         return available
-                    } else if (available.y > 200f && isAtVeryTop) {
-                        // Flinging down (pulling down at top): spring open!
+                    } else if (available.y > 150f && isAtVeryTop) {
+                        // Flinging down at top: spring open!
                         headerOffsetAnimatable.animateTo(0f, springSpec)
                         onStoryExpandedChange(true)
                         return available
                     } else {
-                        // Position-based spring threshold (40% open threshold)
-                        val target = if (currentOffset > -storiesHeightPx * 0.6f && isAtVeryTop) 0f else -storiesHeightPx
+                        // Telegram pull threshold: 35% pull is enough to trigger full spring reveal
+                        val revealThreshold = -storiesHeightPx * 0.65f
+                        val shouldOpen = currentOffset > revealThreshold && isAtVeryTop
+                        val target = if (shouldOpen) 0f else -storiesHeightPx
                         headerOffsetAnimatable.animateTo(target, springSpec)
-                        onStoryExpandedChange(target == 0f)
+                        onStoryExpandedChange(shouldOpen)
                     }
                 } else if (currentOffset < -storiesHeightPx && currentOffset > -maxHeaderHeightPx) {
                     // Search bar snap

@@ -150,21 +150,22 @@ fun CompactStoryAvatarGroup(
     onClick: () -> Unit = {}
 ) {
     val displayStories = remember(stories) {
-        val unviewed = stories.filter { !it.isViewed && it.id != "1" }
-        if (unviewed.isNotEmpty()) unviewed.take(3) else stories.take(3)
+        val nonOwn = stories.filter { it.id != "1" }
+        val unviewed = nonOwn.filter { !it.isViewed }
+        if (unviewed.isNotEmpty()) unviewed.take(3) else nonOwn.take(3)
     }
 
     if (displayStories.isEmpty()) return
 
-    val avatarSize = 28.dp
-    val overlapOffset = 16.dp
+    val avatarSize = 30.dp
+    val overlapOffset = 18.dp
     val totalWidth = avatarSize + overlapOffset * (displayStories.size - 1).coerceAtLeast(0)
 
     Box(
         modifier = modifier
             .width(totalWidth)
             .height(avatarSize)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(15.dp))
             .clickable(onClick = onClick)
             .semantics {
                 contentDescription = "Истории, нажмите чтобы показать все"
@@ -173,7 +174,11 @@ fun CompactStoryAvatarGroup(
     ) {
         displayStories.forEachIndexed { index, story ->
             val ringColors = story.ringColors.ifEmpty {
-                listOf(Color(0xFF00E676), Color(0xFF00E5FF), Color(0xFF7C4DFF), Color(0xFF00E676))
+                when (index) {
+                    0 -> listOf(Color(0xFF00E5FF), Color(0xFF2979FF), Color(0xFF00E5FF))
+                    1 -> listOf(Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFF00E676))
+                    else -> listOf(Color(0xFF7C4DFF), Color(0xFF00E5FF), Color(0xFF7C4DFF))
+                }
             }
             Box(
                 modifier = Modifier
@@ -184,6 +189,12 @@ fun CompactStoryAvatarGroup(
                     .drawWithCache {
                         val brush = Brush.sweepGradient(ringColors)
                         onDrawBehind {
+                            // Dark cutout ring behind for separation
+                            drawCircle(
+                                color = Color(0xFF18181B),
+                                radius = (size.minDimension / 2f) + 1.5.dp.toPx()
+                            )
+                            // Colorful story ring
                             drawCircle(
                                 brush = brush,
                                 radius = size.minDimension / 2f,
@@ -191,7 +202,7 @@ fun CompactStoryAvatarGroup(
                             )
                         }
                     }
-                    .padding(2.dp)
+                    .padding(2.5.dp)
             ) {
                 AsyncImage(
                     model = story.avatarUrl,
