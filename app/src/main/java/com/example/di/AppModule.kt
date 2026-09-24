@@ -176,6 +176,9 @@ val viewModelModule = module {
     viewModel {
         AccountViewModel()
     }
+    viewModel {
+        com.example.ui.ConversationViewModel()
+    }
 }
 
 /**
