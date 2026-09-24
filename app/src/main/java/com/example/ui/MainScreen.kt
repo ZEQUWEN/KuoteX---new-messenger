@@ -1057,6 +1057,7 @@ fun ChatListScreen(
     val headerOffsetAnimatable = remember { 
         Animatable(if (isStoryExpanded) 0f else -storiesHeightPx) 
     }
+    val animJob = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     // Search bar unfolds between -maxHeaderHeightPx and -storiesHeightPx
     val searchFraction by remember {
@@ -1080,39 +1081,70 @@ fun ChatListScreen(
         )
     }
 
-    // Telegram "Pull-to-Reveal" Stories Panel Mechanics:
-    // 1. Stories panel ONLY reveals when the user pulls down at the very top of the chat list
-    //    (firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0).
-    // 2. While pulling down at the top, a gentle rubber-band resistance is applied.
-    // 3. When released:
-    //    - If pulled past 35% of the panel height OR with positive downward velocity (> 180f), it springs fully OPEN with overshoot.
-    //    - Otherwise, it springs cleanly back SHUT.
-    // 4. Any upward scroll (delta < 0) immediately collapses the stories panel with snappy spring physics.
-    // 5. In-between list scrolling operates completely undisturbed with zero jitter or premature panel expansion.
+    // Automatic opening of stories and streams panel when reaching top edge of chat list
+    val currentListState = tabListStates[safeTabIndex]
+    LaunchedEffect(currentListState) {
+        if (currentListState == null) return@LaunchedEffect
+        var prevIndex = currentListState.firstVisibleItemIndex
+        var prevOffset = currentListState.firstVisibleItemScrollOffset
+
+        snapshotFlow {
+            Triple(
+                currentListState.firstVisibleItemIndex,
+                currentListState.firstVisibleItemScrollOffset,
+                currentListState.isScrollInProgress
+            )
+        }.collect { (index, offset, _) ->
+            val wasScrolledDown = prevIndex > 0 || prevOffset > 15
+            val isAtStart = index == 0 && offset == 0
+            val isScrollingUp = index < prevIndex || (index == prevIndex && offset < prevOffset)
+
+            // When scrolling up and reaching the very start of the chat list:
+            if (isAtStart && wasScrolledDown && isScrollingUp) {
+                if (headerOffsetAnimatable.value < 0f && animJob.value?.isActive != true) {
+                    animJob.value?.cancel()
+                    animJob.value = coroutineScope.launch {
+                        headerOffsetAnimatable.animateTo(0f, springSpec)
+                        onStoryExpandedChange(true)
+                    }
+                }
+            }
+
+            prevIndex = index
+            prevOffset = offset
+        }
+    }
+
+    // Telegram "Pull-to-Reveal" Stories Panel Mechanics with sequential unfolding:
+    // 1. Scrolling down into chats collapses the stories panel first, then search bar.
+    // 2. Scrolling up reveals search bar first, and reaching the beginning of the list reveals the stories panel.
+    // 3. Elastic pull resistance and spring animation ensure smooth motion without jerks.
     val nestedScrollConnection = remember(maxHeaderHeightPx, storiesHeightPx, safeTabIndex) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
                 val currentOffset = headerOffsetAnimatable.value
 
-                // Scrolling DOWN (delta < 0, finger dragging up):
-                // If stories panel is open (offset > -storiesHeightPx), immediately collapse it first!
+                // Cancel running animation on user drag
+                if (source == NestedScrollSource.UserInput && animJob.value?.isActive == true) {
+                    animJob.value?.cancel()
+                }
+
+                // Scrolling DOWN into chats (delta < 0, finger dragging up):
+                // 1. If stories panel is open (offset > -storiesHeightPx), collapse stories first!
                 if (delta < 0f && currentOffset > -storiesHeightPx) {
                     val newOffset = (currentOffset + delta).coerceIn(-storiesHeightPx, 0f)
                     val consumedY = newOffset - currentOffset
                     coroutineScope.launch {
                         headerOffsetAnimatable.snapTo(newOffset)
                     }
-                    if (newOffset <= -storiesHeightPx && isStoryExpanded) {
-                        onStoryExpandedChange(false)
-                    }
                     return Offset(0f, consumedY)
                 }
 
-                // If user scrolls down deeper past top items, collapse search bar if expanded
+                // 2. If chat list is scrolled past top items, collapse search bar
                 if (delta < 0f && currentOffset > -maxHeaderHeightPx && currentOffset <= -storiesHeightPx) {
-                    val currentListState = tabListStates[safeTabIndex]
-                    val isScrolledPastTop = (currentListState?.firstVisibleItemIndex ?: 0) > 1
+                    val currentList = tabListStates[safeTabIndex]
+                    val isScrolledPastTop = (currentList?.firstVisibleItemIndex ?: 0) > 0
                     if (isScrolledPastTop) {
                         val newOffset = (currentOffset + delta).coerceIn(-maxHeaderHeightPx, -storiesHeightPx)
                         val consumedY = newOffset - currentOffset
@@ -1130,18 +1162,29 @@ fun ChatListScreen(
                 val delta = available.y
                 val currentOffset = headerOffsetAnimatable.value
 
-                // Strictly check if the list is at the absolute top
-                val currentListState = tabListStates[safeTabIndex]
-                val isAtVeryTop = (currentListState?.firstVisibleItemIndex ?: 0) == 0 &&
-                        (currentListState?.firstVisibleItemScrollOffset ?: 0) == 0
+                if (source == NestedScrollSource.UserInput && animJob.value?.isActive == true) {
+                    animJob.value?.cancel()
+                }
 
-                // When user drags DOWN at the very top (available.y > 0):
-                // Expand stories panel with Telegram-like tactile elastic resistance
+                val currentList = tabListStates[safeTabIndex]
+                val isAtVeryTop = (currentList?.firstVisibleItemIndex ?: 0) == 0 &&
+                        (currentList?.firstVisibleItemScrollOffset ?: 0) == 0
+
+                // 1. If search bar is collapsed, reveal search bar first
+                if (delta > 0f && currentOffset < -storiesHeightPx) {
+                    val newOffset = (currentOffset + delta).coerceIn(-maxHeaderHeightPx, -storiesHeightPx)
+                    val consumedY = newOffset - currentOffset
+                    coroutineScope.launch {
+                        headerOffsetAnimatable.snapTo(newOffset)
+                    }
+                    return Offset(0f, consumedY)
+                }
+
+                // 2. When at the absolute beginning of the chat list, pull down reveals stories panel
                 if (delta > 0f && isAtVeryTop && currentOffset < 0f) {
                     val progress = ((currentOffset + storiesHeightPx) / storiesHeightPx).coerceIn(0f, 1f)
-                    // Dynamic resistance: easier at beginning (0.85), gently firmer towards fully opened (0.55)
-                    val resistance = 0.85f - (0.3f * progress)
-                    val newOffset = (currentOffset + delta * resistance).coerceIn(-maxHeaderHeightPx, 0f)
+                    val resistance = 0.85f - (0.35f * progress)
+                    val newOffset = (currentOffset + delta * resistance).coerceIn(-storiesHeightPx, 0f)
                     val consumedY = (newOffset - currentOffset) / resistance
                     coroutineScope.launch {
                         headerOffsetAnimatable.snapTo(newOffset)
@@ -1154,36 +1197,57 @@ fun ChatListScreen(
 
             override suspend fun onPreFling(available: Velocity): Velocity {
                 val currentOffset = headerOffsetAnimatable.value
-                val currentListState = tabListStates[safeTabIndex]
-                val isAtVeryTop = (currentListState?.firstVisibleItemIndex ?: 0) == 0 &&
-                        (currentListState?.firstVisibleItemScrollOffset ?: 0) == 0
+                val currentList = tabListStates[safeTabIndex]
+                val isAtVeryTop = (currentList?.firstVisibleItemIndex ?: 0) == 0 &&
+                        (currentList?.firstVisibleItemScrollOffset ?: 0) == 0
 
-                // If currently between hidden (-storiesHeightPx) and fully open (0f):
                 if (currentOffset > -storiesHeightPx && currentOffset < 0f) {
-                    if (available.y < -150f) {
-                        // Flinging up: snap stories shut immediately
-                        headerOffsetAnimatable.animateTo(-storiesHeightPx, springSpec)
-                        onStoryExpandedChange(false)
+                    animJob.value?.cancel()
+                    if (available.y < -120f) {
+                        animJob.value = coroutineScope.launch {
+                            headerOffsetAnimatable.animateTo(-storiesHeightPx, springSpec)
+                            onStoryExpandedChange(false)
+                        }
                         return available
-                    } else if (available.y > 150f && isAtVeryTop) {
-                        // Flinging down at top: spring open!
-                        headerOffsetAnimatable.animateTo(0f, springSpec)
-                        onStoryExpandedChange(true)
+                    } else if (available.y > 120f && isAtVeryTop) {
+                        animJob.value = coroutineScope.launch {
+                            headerOffsetAnimatable.animateTo(0f, springSpec)
+                            onStoryExpandedChange(true)
+                        }
                         return available
                     } else {
-                        // Telegram pull threshold: 35% pull is enough to trigger full spring reveal
-                        val revealThreshold = -storiesHeightPx * 0.65f
-                        val shouldOpen = currentOffset > revealThreshold && isAtVeryTop
+                        val threshold = -storiesHeightPx * 0.70f
+                        val shouldOpen = currentOffset > threshold && isAtVeryTop
                         val target = if (shouldOpen) 0f else -storiesHeightPx
-                        headerOffsetAnimatable.animateTo(target, springSpec)
-                        onStoryExpandedChange(shouldOpen)
+                        animJob.value = coroutineScope.launch {
+                            headerOffsetAnimatable.animateTo(target, springSpec)
+                            onStoryExpandedChange(shouldOpen)
+                        }
                     }
                 } else if (currentOffset < -storiesHeightPx && currentOffset > -maxHeaderHeightPx) {
-                    // Search bar snap
                     val target = if (currentOffset > -maxHeaderHeightPx + searchHeightPx * 0.5f) -storiesHeightPx else -maxHeaderHeightPx
-                    headerOffsetAnimatable.animateTo(target, springSpec)
+                    animJob.value?.cancel()
+                    animJob.value = coroutineScope.launch {
+                        headerOffsetAnimatable.animateTo(target, springSpec)
+                    }
                 }
                 return super.onPreFling(available)
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (available.y > 100f) {
+                    val currentList = tabListStates[safeTabIndex]
+                    val isAtVeryTop = (currentList?.firstVisibleItemIndex ?: 0) == 0 &&
+                            (currentList?.firstVisibleItemScrollOffset ?: 0) == 0
+                    if (isAtVeryTop && headerOffsetAnimatable.value < 0f) {
+                        animJob.value?.cancel()
+                        animJob.value = coroutineScope.launch {
+                            headerOffsetAnimatable.animateTo(0f, springSpec)
+                            onStoryExpandedChange(true)
+                        }
+                    }
+                }
+                return super.onPostFling(consumed, available)
             }
         }
     }
@@ -1198,8 +1262,11 @@ fun ChatListScreen(
 
     LaunchedEffect(isStoryExpanded) {
         val target = if (isStoryExpanded) 0f else -storiesHeightPx
-        if (headerOffsetAnimatable.targetValue != target) {
-            headerOffsetAnimatable.animateTo(target, springSpec)
+        if (headerOffsetAnimatable.value != target && animJob.value?.isActive != true) {
+            animJob.value?.cancel()
+            animJob.value = coroutineScope.launch {
+                headerOffsetAnimatable.animateTo(target, springSpec)
+            }
         }
     }
 
@@ -1564,16 +1631,14 @@ fun ChatListScreen(
                 viewModel.searchDatabase(pageQuery, searchCategoryIndex)
             }.collectAsStateWithLifecycle(initialValue = DatabaseSearchResults())
 
-            val pagePullRefreshState = rememberPullToRefreshState()
             val pageListState = remember(page) {
                 tabListStates.getOrPut(page) { LazyListState() }
             }
 
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = { viewModel.syncMessages() },
-                state = pagePullRefreshState,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp)
             ) {
                 LazyColumn(
                     state = pageListState,
