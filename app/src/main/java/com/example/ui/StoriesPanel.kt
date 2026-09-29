@@ -35,9 +35,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 
 data class Story(
@@ -497,6 +504,14 @@ fun StoriesPanel(
         state = listState,
         modifier = Modifier
             .fillMaxWidth()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { _, dragAmount ->
+                    // Swiping vertically on the stories panel collapses it
+                    if (dragAmount < -18f) {
+                        onStorySwipe(false)
+                    }
+                }
+            }
             .padding(vertical = 4.dp),
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -668,116 +683,233 @@ fun StoryViewerPopup(
     onJoinLive: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
-    var progress by remember { mutableStateOf(0f) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    val offsetY = remember { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+    val dismissThresholdPx = with(density) { 130.dp.toPx() }
     
     LaunchedEffect(story) {
         val duration = 15000
-        val steps = 100
+        val steps = 150
         val delayTime = (duration / steps).toLong()
-        for (i in 1..steps) {
-            delay(delayTime)
-            progress = i.toFloat() / steps
+        var step = 0
+        while (step <= steps) {
+            if (!isDragging) {
+                delay(delayTime)
+                progress = step.toFloat() / steps
+                step++
+            } else {
+                delay(50)
+            }
         }
         onDismiss()
     }
+
+    val backgroundAlpha = (1f - (offsetY.value / (screenHeightPx * 0.45f))).coerceIn(0f, 1f)
+    val cardScale = (1f - (offsetY.value / (screenHeightPx * 2.2f))).coerceIn(0.80f, 1f)
+    val cornerRadius = ((offsetY.value / dismissThresholdPx) * 28f).coerceIn(0f, 32f).dp
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true, dismissOnClickOutside = true)
     ) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-            AsyncImage(
-                model = story.mediaUrl,
-                contentDescription = "Story Media",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            
-            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                    color = Color.White,
-                    trackColor = Color.White.copy(alpha = 0.3f)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = backgroundAlpha))
+                .pointerInput(story.id) {
+                    detectVerticalDragGestures(
+                        onDragStart = {
+                            isDragging = true
+                        },
+                        onDragEnd = {
+                            isDragging = false
+                            if (offsetY.value > dismissThresholdPx) {
+                                coroutineScope.launch {
+                                    offsetY.animateTo(
+                                        targetValue = screenHeightPx,
+                                        animationSpec = tween(durationMillis = 200, easing = FastOutLinearInEasing)
+                                    )
+                                    onDismiss()
+                                }
+                            } else {
+                                coroutineScope.launch {
+                                    offsetY.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioLowBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                            coroutineScope.launch {
+                                offsetY.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
+                                )
+                            }
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            val nextOffset = (offsetY.value + dragAmount).coerceAtLeast(0f)
+                            coroutineScope.launch {
+                                offsetY.snapTo(nextOffset)
+                            }
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset { IntOffset(0, offsetY.value.roundToInt()) }
+                    .graphicsLayer {
+                        scaleX = cardScale
+                        scaleY = cardScale
+                        clip = true
+                        shape = RoundedCornerShape(cornerRadius)
+                        transformOrigin = TransformOrigin(0.5f, 0.5f)
+                    }
+                    .background(Color.Black)
+            ) {
+                AsyncImage(
+                    model = story.mediaUrl,
+                    contentDescription = "Story Media",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable {
-                        onDismiss()
-                        onAvatarClick(story)
-                    }.padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
+
+                // Drag indicator pull pill at the top
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp)
+                        .width(42.dp)
+                        .height(4.5.dp)
+                        .clip(RoundedCornerShape(2.5.dp))
+                        .background(Color.White.copy(alpha = 0.55f))
+                )
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 20.dp)
                 ) {
-                    if (story.isLive) {
-                        LivePulsatingRing(modifier = Modifier.size(44.dp)) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = Color.White,
+                        trackColor = Color.White.copy(alpha = 0.3f)
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable {
+                            onDismiss()
+                            onAvatarClick(story)
+                        }.padding(end = 16.dp, top = 4.dp, bottom = 4.dp)
+                    ) {
+                        if (story.isLive) {
+                            LivePulsatingRing(modifier = Modifier.size(44.dp)) {
+                                AsyncImage(
+                                    model = story.avatarUrl,
+                                    contentDescription = "Avatar",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                )
+                            }
+                        } else {
                             AsyncImage(
                                 model = story.avatarUrl,
                                 contentDescription = "Avatar",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .fillMaxSize()
+                                    .size(40.dp)
                                     .clip(CircleShape)
                             )
                         }
-                    } else {
-                        AsyncImage(
-                            model = story.avatarUrl,
-                            contentDescription = "Avatar",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = story.author,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                        if (story.isLive) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
                             Text(
-                                text = "🔴 В эфире",
-                                color = Color(0xFFFF5252),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
+                                text = story.author,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
                             )
+                            if (story.isLive) {
+                                Text(
+                                    text = "🔴 В эфире",
+                                    color = Color(0xFFFF5252),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
                         }
                     }
-                    Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                    
+                    if (story.isLive) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        Button(
+                            onClick = {
+                                onDismiss()
+                                onJoinLive(story.id)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
+                            shape = RoundedCornerShape(24.dp)
+                        ) {
+                            Icon(Icons.Filled.LiveTv, contentDescription = null, tint = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Смотреть трансляцию", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
                 }
                 
-                if (story.isLive) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    Button(
-                        onClick = {
-                            onDismiss()
-                            onJoinLive(story.id)
-                        },
+                // Allow tap to skip if not dragging and not clicking live button
+                if (!story.isLive) {
+                    Row(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
-                        shape = RoundedCornerShape(24.dp)
+                            .fillMaxSize()
+                            .padding(top = 80.dp)
                     ) {
-                        Icon(Icons.Filled.LiveTv, contentDescription = null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Смотреть трансляцию", fontWeight = FontWeight.Bold, color = Color.White)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable { 
+                                    if (!isDragging && offsetY.value < 10f) onDismiss() 
+                                }
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable { 
+                                    if (!isDragging && offsetY.value < 10f) onDismiss() 
+                                }
+                        )
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
-            }
-            
-            // Allow tap to skip if not clicking the live button
-            if (!story.isLive) {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.weight(1f).fillMaxHeight().clickable { onDismiss() })
-                    Box(modifier = Modifier.weight(1f).fillMaxHeight().clickable { onDismiss() })
                 }
             }
         }
