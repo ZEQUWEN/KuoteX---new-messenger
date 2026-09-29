@@ -60,6 +60,13 @@ import com.example.data.EntityType
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.pointerInput
+import com.example.ui.navigation.AppDestinations
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -74,8 +81,46 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
     val headerHeightDp = 380.dp
     val headerHeightPx = with(density) { headerHeightDp.toPx() }
     
-    var overscrollOffset by remember { mutableFloatStateOf(0f) }
+    val profileSpringSpec = remember {
+        spring<Float>(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
+    }
+    val avatarPanAnimatable = remember { Animatable(0f) }
+    var isAvatarDragging by remember { mutableStateOf(false) }
+    val dismissThresholdPx = with(density) { 140.dp.toPx() }
     val scope = rememberCoroutineScope()
+
+    var addedAvatars by remember(activeAccount.id) {
+        mutableStateOf<List<String>>(emptyList())
+    }
+    val persistentAvatar = remember(activeAccount.id, activeAccount.profilePicUrl) {
+        AvatarStorageManager.getAvatar(
+            context,
+            EntityType.ACCOUNT,
+            activeAccount.id,
+            activeAccount.profilePicUrl
+        )
+    }
+    val avatars = remember(activeAccount.id, persistentAvatar, addedAvatars) {
+        val list = mutableListOf<String>()
+        list.addAll(addedAvatars)
+        if (!list.contains(persistentAvatar)) {
+            list.add(0, persistentAvatar)
+        }
+        val defaults = listOf(
+            "https://picsum.photos/seed/${activeAccount.id}_1/800",
+            "https://picsum.photos/seed/${activeAccount.id}_2/800"
+        )
+        for (item in defaults) {
+            if (!list.contains(item)) {
+                list.add(item)
+            }
+        }
+        list
+    }
+    val avatarPagerState = rememberPagerState(initialPage = 0, pageCount = { avatars.size })
 
     val photoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
@@ -88,6 +133,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                     entityType = EntityType.ACCOUNT,
                     entityId = activeAccount.id
                 )
+                addedAvatars = listOf(savedPath) + addedAvatars.filter { it != savedPath }
                 viewModel.updateProfile(
                     id = activeAccount.id,
                     username = activeAccount.username,
@@ -99,7 +145,8 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                     dateOfBirth = activeAccount.dateOfBirth,
                     socialMedia = activeAccount.socialMedia
                 )
-                Toast.makeText(context, "Фотография профиля успешно сохранена!", Toast.LENGTH_SHORT).show()
+                avatarPagerState.animateScrollToPage(0)
+                Toast.makeText(context, "Фотография профиля успешно добавлена!", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -107,9 +154,11 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (overscrollOffset > 0f && available.y < 0) {
-                    val consumed = available.y.coerceAtLeast(-overscrollOffset)
-                    overscrollOffset += consumed
+                if (avatarPanAnimatable.value > 0f && available.y < 0) {
+                    val consumed = available.y.coerceAtLeast(-avatarPanAnimatable.value)
+                    scope.launch {
+                        avatarPanAnimatable.snapTo(avatarPanAnimatable.value + consumed)
+                    }
                     return Offset(0f, consumed)
                 }
                 return Offset.Zero
@@ -121,31 +170,29 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 source: NestedScrollSource
             ): Offset {
                 if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
-                    val damping = (1f - (overscrollOffset / 500f)).coerceIn(0.18f, 0.55f)
+                    val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.20f, 0.65f)
                     val delta = available.y * damping
-                    overscrollOffset += delta
+                    scope.launch {
+                        avatarPanAnimatable.snapTo(avatarPanAnimatable.value + delta)
+                    }
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (overscrollOffset > 0f) {
-                    overscrollOffset = 0f
+                if (avatarPanAnimatable.value > dismissThresholdPx || available.y > 600f) {
+                    val screenHeight = with(density) { 900.dp.toPx() }
+                    avatarPanAnimatable.animateTo(screenHeight, profileSpringSpec)
+                    navController.popBackStack()
+                    return available
+                } else if (avatarPanAnimatable.value > 0f) {
+                    avatarPanAnimatable.animateTo(0f, profileSpringSpec)
                 }
                 return Velocity.Zero
             }
         }
     }
-
-    val animatedOverscroll by animateFloatAsState(
-        targetValue = overscrollOffset,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "avatar_overscroll"
-    )
     
     var showEditDateDialog by remember { mutableStateOf(false) }
     var showChangeNumberDialog by remember { mutableStateOf(false) }
@@ -177,28 +224,13 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
         }
     }
     var selectedGiftForDetail by remember { mutableStateOf<com.example.ui.gifts.PinnedGift?>(null) }
-    val persistentAvatar = remember(activeAccount.id, activeAccount.profilePicUrl) {
-        AvatarStorageManager.getAvatar(
-            context,
-            EntityType.ACCOUNT,
-            activeAccount.id,
-            activeAccount.profilePicUrl
-        )
-    }
-    val avatars = remember(activeAccount.id, persistentAvatar) {
-        listOf(
-            persistentAvatar,
-            "https://picsum.photos/seed/${activeAccount.id}_1/800",
-            "https://picsum.photos/seed/${activeAccount.id}_2/800"
-        )
-    }
     
     var selectedTab by remember { mutableStateOf(0) }
 
     if (showAvatarViewer) {
         AvatarViewerDialog(
             avatars = avatars,
-            initialPage = 0,
+            initialPage = avatarPagerState.currentPage,
             onDismiss = { showAvatarViewer = false }
         )
     }
@@ -224,84 +256,217 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
         // --- Header Image and Title ---
         val scrollOffset = listState.firstVisibleItemScrollOffset.toFloat()
         val firstItemIndex = listState.firstVisibleItemIndex
-        
         val actualScroll = if (firstItemIndex == 0) scrollOffset else headerHeightPx
         val collapseFraction = (actualScroll / headerHeightPx).coerceIn(0f, 1f)
-        
-        // Check if the user is scrolled to the very top of the profile page
-        val isAtTop by remember {
-            derivedStateOf {
-                firstItemIndex == 0 && scrollOffset <= 6f
-            }
-        }
 
-        // Gentle scale-up animation for the profile avatar when scrolling to the top:
-        // As the user returns to the top, avatar softly scales up to 1.045f with a gentle spring.
-        val atTopScale by animateFloatAsState(
-            targetValue = if (isAtTop) 1.045f else 1.0f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioLowBouncy,
-                stiffness = Spring.StiffnessLow
+        // Framed Telegram-Style Avatar Carousel Header with Spring Physics on Swipe Down
+        Surface(
+            shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
+            border = BorderStroke(
+                width = 1.2.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.35f),
+                        Color.White.copy(alpha = 0.08f),
+                        Color(0xFF222A3B).copy(alpha = 0.65f)
+                    )
+                )
             ),
-            label = "avatar_at_top_scale"
-        )
-
-        // Elastic stretch scale when pulling down into overscroll at the top
-        val overscrollScale = (animatedOverscroll / 320f).coerceIn(0f, 0.32f)
-        val totalAvatarScale = atTopScale + overscrollScale
-        val translationY = if (animatedOverscroll > 0f) animatedOverscroll * 0.45f else -actualScroll * 0.45f
-
-        // Dynamic Liquid Glass sheen highlight that gently enhances as the avatar settles at top
-        val glassSheenAlpha by animateFloatAsState(
-            targetValue = if (isAtTop) 0.32f else 0.18f,
-            animationSpec = spring(stiffness = Spring.StiffnessLow),
-            label = "glass_sheen_alpha"
-        )
-
-        Box(
+            color = Color(0xFF13161F),
+            shadowElevation = 8.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(headerHeightDp)
                 .graphicsLayer {
-                    scaleX = totalAvatarScale
-                    scaleY = totalAvatarScale
-                    transformOrigin = TransformOrigin(0.5f, 0.35f)
-                    this.translationY = translationY
+                    translationY = avatarPanAnimatable.value
                 }
-                .clickable { showAvatarViewer = true }
-        ) {
-            val imageUrl = avatars.first()
-            AsyncImage(
-                model = ImageRequest.Builder(context).allowHardware(false)
-                    .data(imageUrl)
-                    .crossfade(true)
-                    .build(),
-                imageLoader = imageLoader,
-                contentDescription = "Avatar",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            // Gradient overlay at bottom of image
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                MaterialTheme.colorScheme.background.copy(alpha = 0.5f),
-                                MaterialTheme.colorScheme.background
-                            ),
-                            startY = headerHeightPx * 0.40f
-                        )
+                .pointerInput(Unit) {
+                    var dragAccumulator = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = {
+                            isAvatarDragging = true
+                            dragAccumulator = avatarPanAnimatable.value
+                        },
+                        onDragEnd = {
+                            isAvatarDragging = false
+                            if (avatarPanAnimatable.value > dismissThresholdPx) {
+                                scope.launch {
+                                    val screenHeight = with(density) { 900.dp.toPx() }
+                                    avatarPanAnimatable.animateTo(screenHeight, profileSpringSpec)
+                                    navController.popBackStack()
+                                }
+                            } else {
+                                scope.launch {
+                                    avatarPanAnimatable.animateTo(0f, profileSpringSpec)
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            isAvatarDragging = false
+                            scope.launch {
+                                avatarPanAnimatable.animateTo(0f, profileSpringSpec)
+                            }
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            if (dragAmount > 0 || avatarPanAnimatable.value > 0f) {
+                                change.consume()
+                                val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.20f, 0.75f)
+                                dragAccumulator += dragAmount * damping
+                                val nextOffset = dragAccumulator.coerceAtLeast(0f)
+                                scope.launch {
+                                    avatarPanAnimatable.snapTo(nextOffset)
+                                }
+                            }
+                        }
                     )
-            )
+                }
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                HorizontalPager(
+                    state = avatarPagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .allowHardware(false)
+                                .data(avatars[page])
+                                .crossfade(true)
+                                .build(),
+                            imageLoader = imageLoader,
+                            contentDescription = "Avatar $page",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        // Gradient overlay at bottom of image
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.20f),
+                                            MaterialTheme.colorScheme.background.copy(alpha = 0.85f),
+                                            MaterialTheme.colorScheme.background
+                                        ),
+                                        startY = headerHeightPx * 0.42f
+                                    )
+                                )
+                        )
+                    }
+                }
+
+                // Top Segmented Dash Indicators for Profile Avatars (Telegram style)
+                if (avatars.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(top = 10.dp, start = 16.dp, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        avatars.indices.forEach { index ->
+                            val isActive = index == avatarPagerState.currentPage
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(2.5.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isActive) Color.White else Color.White.copy(alpha = 0.35f)
+                                    )
+                            )
+                        }
+                    }
+                }
+
+                // Photo count badge (e.g. 1 / 3)
+                if (avatars.size > 1) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Black.copy(alpha = 0.55f),
+                        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.2f)),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 18.dp)
+                    ) {
+                        Text(
+                            text = "${avatarPagerState.currentPage + 1} / ${avatars.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Top Drag Handle Pill indicator
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 22.dp)
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.5f))
+                )
+
+                // Touch tap zones: left 28% -> previous photo, center 44% -> full viewer, right 28% -> next photo
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(0.28f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                if (avatarPagerState.currentPage > 0) {
+                                    scope.launch {
+                                        avatarPagerState.animateScrollToPage(avatarPagerState.currentPage - 1)
+                                    }
+                                }
+                            }
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(0.44f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                showAvatarViewer = true
+                            }
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(0.28f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                if (avatarPagerState.currentPage < avatars.size - 1) {
+                                    scope.launch {
+                                        avatarPagerState.animateScrollToPage(avatarPagerState.currentPage + 1)
+                                    }
+                                }
+                            }
+                    )
+                }
+            }
         }
 
         // --- Main Content ---
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = avatarPanAnimatable.value
+                }
         ) {
             item {
                 Spacer(modifier = Modifier.height(headerHeightDp - 85.dp))
@@ -352,8 +517,8 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                     .background(
                                         Brush.verticalGradient(
                                             listOf(
-                                                Color.White.copy(alpha = glassSheenAlpha),
-                                                Color.White.copy(alpha = glassSheenAlpha * 0.2f),
+                                                Color.White.copy(alpha = 0.28f),
+                                                Color.White.copy(alpha = 0.06f),
                                                 Color.Transparent
                                             ),
                                             startY = 0f,
@@ -499,7 +664,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                         icon = Icons.Filled.Edit,
                         text = "Изменить",
                         modifier = Modifier.weight(1f),
-                        onClick = { navController.navigate("settings/general") }
+                        onClick = { navController.navigate("settings/profile") }
                     )
                     ProfileActionButton(
                         icon = Icons.Filled.Settings,
@@ -563,13 +728,45 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
                         InfoItem(
-                            title = activeAccount.dateOfBirth.takeIf { it.isNotBlank() } ?: "Укажите дату рождения",
+                            title = formatBirthDateWithAge(activeAccount.dateOfBirth).takeIf { activeAccount.dateOfBirth.isNotBlank() } ?: "Укажите дату рождения",
                             subtitle = "День рождения",
-                            onClick = { },
+                            onClick = { showEditDateDialog = true },
                             menuItems = { closeMenu ->
-                                DropdownMenuItem(text = { Text("Копировать") }, onClick = { clipboardManager.setText(AnnotatedString("21 июн. 2005")); closeMenu() })
-                                DropdownMenuItem(text = { Text("Изменить дату") }, onClick = { showEditDateDialog = true; closeMenu() })
-                                DropdownMenuItem(text = { Text("Удалить", color = Color.Red) }, onClick = { closeMenu() })
+                                if (activeAccount.dateOfBirth.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Копировать") },
+                                        onClick = {
+                                            clipboardManager.setText(AnnotatedString(activeAccount.dateOfBirth))
+                                            closeMenu()
+                                        }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Изменить дату") },
+                                    onClick = {
+                                        showEditDateDialog = true
+                                        closeMenu()
+                                    }
+                                )
+                                if (activeAccount.dateOfBirth.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Удалить", color = Color.Red) },
+                                        onClick = {
+                                            viewModel.updateProfile(
+                                                id = activeAccount.id,
+                                                username = activeAccount.username,
+                                                displayName = activeAccount.displayName,
+                                                bio = activeAccount.bio,
+                                                profilePicUrl = activeAccount.profilePicUrl,
+                                                customStatus = activeAccount.customStatus,
+                                                phoneNumber = activeAccount.phoneNumber,
+                                                dateOfBirth = "",
+                                                socialMedia = activeAccount.socialMedia
+                                            )
+                                            closeMenu()
+                                        }
+                                    )
+                                }
                             }
                         )
                     }
@@ -1184,16 +1381,39 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
             )
         }
         if (showEditDateDialog) {
-            AlertDialog(
-                onDismissRequest = { showEditDateDialog = false },
-                title = { Text("День рождения") },
-                text = { Text("Укажите свой день рождения.") },
-                confirmButton = {
-                    Button(onClick = { showEditDateDialog = false }) { Text("Сохранить") }
+            BirthdayPickerDialog(
+                initialDate = activeAccount.dateOfBirth,
+                onDateSaved = { newDate ->
+                    viewModel.updateProfile(
+                        id = activeAccount.id,
+                        username = activeAccount.username,
+                        displayName = activeAccount.displayName,
+                        bio = activeAccount.bio,
+                        profilePicUrl = activeAccount.profilePicUrl,
+                        customStatus = activeAccount.customStatus,
+                        phoneNumber = activeAccount.phoneNumber,
+                        dateOfBirth = newDate,
+                        socialMedia = activeAccount.socialMedia
+                    )
+                    showEditDateDialog = false
+                    Toast.makeText(context, "Дата рождения сохранена: $newDate", Toast.LENGTH_SHORT).show()
                 },
-                dismissButton = {
-                    TextButton(onClick = { showEditDateDialog = false }) { Text("Отмена") }
-                }
+                onDateDeleted = {
+                    viewModel.updateProfile(
+                        id = activeAccount.id,
+                        username = activeAccount.username,
+                        displayName = activeAccount.displayName,
+                        bio = activeAccount.bio,
+                        profilePicUrl = activeAccount.profilePicUrl,
+                        customStatus = activeAccount.customStatus,
+                        phoneNumber = activeAccount.phoneNumber,
+                        dateOfBirth = "",
+                        socialMedia = activeAccount.socialMedia
+                    )
+                    showEditDateDialog = false
+                    Toast.makeText(context, "Дата рождения удалена", Toast.LENGTH_SHORT).show()
+                },
+                onDismiss = { showEditDateDialog = false }
             )
         }
         if (showEditBioDialog) {

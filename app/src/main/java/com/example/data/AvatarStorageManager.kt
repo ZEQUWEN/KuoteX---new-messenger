@@ -159,4 +159,64 @@ object AvatarStorageManager {
         val file = getAvatarFile(context, entityType, entityId)
         return file.exists() && file.length() > 0
     }
+
+    /**
+     * Retrieves the list of profile avatars for the user to support avatar carousel.
+     */
+    fun getUserAvatarList(context: Context, userId: String, currentAvatar: String? = null): List<String> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val key = "user_avatars_$userId"
+        val raw = prefs.getString(key, null)
+        val list = mutableListOf<String>()
+        if (!raw.isNullOrBlank()) {
+            try {
+                val jsonArray = org.json.JSONArray(raw)
+                for (i in 0 until jsonArray.length()) {
+                    val url = jsonArray.optString(i)
+                    if (url.isNotBlank() && !list.contains(url)) {
+                        list.add(url)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error parsing avatars json", e)
+            }
+        }
+        val persistent = getAvatar(context, EntityType.ACCOUNT, userId, currentAvatar)
+        if (persistent.isNotBlank() && !list.contains(persistent)) {
+            list.add(0, persistent)
+        }
+        if (list.size < 2) {
+            val sample1 = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800"
+            val sample2 = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800"
+            if (!list.contains(sample1)) list.add(sample1)
+            if (!list.contains(sample2)) list.add(sample2)
+        }
+        return list
+    }
+
+    /**
+     * Adds an avatar URL to the top of the user's avatar carousel list.
+     */
+    fun addUserAvatar(context: Context, userId: String, avatarUrl: String) {
+        val currentList = getUserAvatarList(context, userId).toMutableList()
+        currentList.remove(avatarUrl)
+        currentList.add(0, avatarUrl)
+        val jsonArray = org.json.JSONArray()
+        currentList.forEach { jsonArray.put(it) }
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString("user_avatars_$userId", jsonArray.toString()).apply()
+        _avatarEvents.tryEmit(AvatarUpdateEvent(EntityType.ACCOUNT, userId, avatarUrl))
+    }
+
+    /**
+     * Deletes an avatar from the user's avatar carousel list.
+     */
+    fun deleteUserAvatar(context: Context, userId: String, avatarUrl: String) {
+        val currentList = getUserAvatarList(context, userId).toMutableList()
+        currentList.remove(avatarUrl)
+        val jsonArray = org.json.JSONArray()
+        currentList.forEach { jsonArray.put(it) }
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString("user_avatars_$userId", jsonArray.toString()).apply()
+    }
 }

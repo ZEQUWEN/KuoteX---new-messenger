@@ -12,6 +12,13 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -289,15 +296,27 @@ fun ProfileScreen(
         )
     }
 
+    val density = LocalDensity.current
+    val profileSpringSpec = remember {
+        spring<Float>(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
+    }
+    val avatarPanAnimatable = remember { Animatable(0f) }
+    val dismissThresholdPx = with(density) { 140.dp.toPx() }
+    val profilePagerState = rememberPagerState(initialPage = 0, pageCount = { avatars.size })
+
     val listState = rememberLazyListState()
-    var overscrollOffset by remember { mutableFloatStateOf(0f) }
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (overscrollOffset > 0f && available.y < 0) {
-                    val consumed = available.y.coerceAtLeast(-overscrollOffset)
-                    overscrollOffset += consumed
+                if (avatarPanAnimatable.value > 0f && available.y < 0) {
+                    val consumed = available.y.coerceAtLeast(-avatarPanAnimatable.value)
+                    scope.launch {
+                        avatarPanAnimatable.snapTo(avatarPanAnimatable.value + consumed)
+                    }
                     return Offset(0f, consumed)
                 }
                 return Offset.Zero
@@ -309,48 +328,29 @@ fun ProfileScreen(
                 source: NestedScrollSource
             ): Offset {
                 if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
-                    val damping = (1f - (overscrollOffset / 500f)).coerceIn(0.18f, 0.55f)
+                    val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.20f, 0.65f)
                     val delta = available.y * damping
-                    overscrollOffset += delta
+                    scope.launch {
+                        avatarPanAnimatable.snapTo(avatarPanAnimatable.value + delta)
+                    }
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (overscrollOffset > 0f) {
-                    overscrollOffset = 0f
+                if (avatarPanAnimatable.value > dismissThresholdPx || available.y > 600f) {
+                    val screenHeight = with(density) { 900.dp.toPx() }
+                    avatarPanAnimatable.animateTo(screenHeight, profileSpringSpec)
+                    navController.popBackStack()
+                    return available
+                } else if (avatarPanAnimatable.value > 0f) {
+                    avatarPanAnimatable.animateTo(0f, profileSpringSpec)
                 }
                 return Velocity.Zero
             }
         }
     }
-
-    val animatedOverscroll by animateFloatAsState(
-        targetValue = overscrollOffset,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "profile_avatar_overscroll"
-    )
-
-    val isAtTop by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 6
-        }
-    }
-    val atTopScale by animateFloatAsState(
-        targetValue = if (isAtTop) 1.045f else 1.0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "profile_avatar_top_scale"
-    )
-    val overscrollScale = (animatedOverscroll / 320f).coerceIn(0f, 0.32f)
-    val totalAvatarScale = atTopScale + overscrollScale
-    val avatarTranslationY = if (animatedOverscroll > 0f) animatedOverscroll * 0.45f else 0f
 
     Scaffold(
         containerColor = Color(0xFF000000),
@@ -398,53 +398,157 @@ fun ProfileScreen(
         ) {
             // 1. HERO HEADER IMAGE WITH OVERLAYS (matching Screenshot 1 & 3)
             item {
-                Box(
+                Surface(
+                    shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
+                    border = BorderStroke(
+                        width = 1.2.dp,
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.35f),
+                                Color.White.copy(alpha = 0.08f),
+                                Color(0xFF222A3B).copy(alpha = 0.65f)
+                            )
+                        )
+                    ),
+                    color = Color(0xFF13161F),
+                    shadowElevation = 8.dp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(380.dp)
-                ) {
-                    // Profile Background Image with gentle scale-up animation at the top
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(avatars.first())
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Avatar",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                scaleX = totalAvatarScale
-                                scaleY = totalAvatarScale
-                                transformOrigin = TransformOrigin(0.5f, 0.35f)
-                                translationY = avatarTranslationY
-                            },
-                        contentScale = ContentScale.Crop
-                    )
-
-                    // Gradient Scrim from top and bottom
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.45f),
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.95f)
-                                    )
-                                )
+                        .graphicsLayer {
+                            translationY = avatarPanAnimatable.value
+                        }
+                        .pointerInput(Unit) {
+                            var dragAccumulator = 0f
+                            detectVerticalDragGestures(
+                                onDragStart = {
+                                    dragAccumulator = avatarPanAnimatable.value
+                                },
+                                onDragEnd = {
+                                    if (avatarPanAnimatable.value > dismissThresholdPx) {
+                                        scope.launch {
+                                            val screenHeight = with(density) { 900.dp.toPx() }
+                                            avatarPanAnimatable.animateTo(screenHeight, profileSpringSpec)
+                                            navController.popBackStack()
+                                        }
+                                    } else {
+                                        scope.launch {
+                                            avatarPanAnimatable.animateTo(0f, profileSpringSpec)
+                                        }
+                                    }
+                                },
+                                onDragCancel = {
+                                    scope.launch {
+                                        avatarPanAnimatable.animateTo(0f, profileSpringSpec)
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    if (dragAmount > 0 || avatarPanAnimatable.value > 0f) {
+                                        change.consume()
+                                        val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.20f, 0.75f)
+                                        dragAccumulator += dragAmount * damping
+                                        val nextOffset = dragAccumulator.coerceAtLeast(0f)
+                                        scope.launch {
+                                            avatarPanAnimatable.snapTo(nextOffset)
+                                        }
+                                    }
+                                }
                             )
-                    )
+                        }
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        HorizontalPager(
+                            state = profilePagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(avatars[page])
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Avatar $page",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.Black.copy(alpha = 0.45f),
+                                                    Color.Transparent,
+                                                    Color.Black.copy(alpha = 0.95f)
+                                                )
+                                            )
+                                        )
+                                )
+                            }
+                        }
 
-                    // Top Bar overlay with Back and 3-dots Menu
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 8.dp)
-                            .align(Alignment.TopCenter),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                        // Top Segmented Dash Indicators (Telegram style)
+                        if (avatars.size > 1) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp, start = 16.dp, end = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                avatars.indices.forEach { index ->
+                                    val isActive = index == profilePagerState.currentPage
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(2.5.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isActive) Color.White else Color.White.copy(alpha = 0.35f)
+                                            )
+                                    )
+                                }
+                            }
+                        }
+
+                        // Photo count badge (e.g. 1 / 3)
+                        if (avatars.size > 1) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.Black.copy(alpha = 0.55f),
+                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.2f)),
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = 16.dp, bottom = 18.dp)
+                            ) {
+                                Text(
+                                    text = "${profilePagerState.currentPage + 1} / ${avatars.size}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        // Top Drag Handle Pill indicator
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 18.dp)
+                                .size(width = 36.dp, height = 4.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.5f))
+                        )
+
+                        // Top Bar overlay with Back and 3-dots Menu
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 8.dp)
+                                .align(Alignment.TopCenter),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                         IconButton(onClick = { navController.popBackStack() }) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
@@ -622,22 +726,22 @@ fun ProfileScreen(
                         ) {
                             ProfileActionButton(
                                 icon = Icons.Filled.Message,
-                                label = "Чат",
+                                text = "Чат",
                                 onClick = { navController.navigate("chat/$chatId") }
                             )
                             ProfileActionButton(
                                 icon = if (isMuted) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
-                                label = if (isMuted) "Вкл. звук" else "Звук",
+                                text = if (isMuted) "Вкл. звук" else "Звук",
                                 onClick = { isMuted = !isMuted }
                             )
                             ProfileActionButton(
                                 icon = Icons.Filled.Call,
-                                label = "Звонок",
+                                text = "Звонок",
                                 onClick = { navController.navigate("call/$chatId?isVideo=false") }
                             )
                             ProfileActionButton(
                                 icon = Icons.Filled.ShoppingBag,
-                                label = "Подарок",
+                                text = "Подарок",
                                 onClick = {
                                     navController.navigate("gifts_marketplace?userId=$chatId&userName=${chat.title}")
                                 }
@@ -670,6 +774,7 @@ fun ProfileScreen(
                     }
                 }
             }
+        }
 
             // 2. USER DETAILS CARD (О себе, Имя пользователя, День рождения)
             item {

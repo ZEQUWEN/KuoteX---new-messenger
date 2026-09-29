@@ -341,45 +341,6 @@ fun AccountScreen(
                     }
                 }
                 
-                // Date Picker Animated Visibility
-                item {
-                    AnimatedVisibility(
-                        visible = showDatePicker,
-                        enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(300)),
-                        exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(300))
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(16.dp)
-                        ) {
-                            Text("Укажите свой день рождения", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Spacer(Modifier.height(16.dp))
-                            
-                            var selectedDate by remember { mutableStateOf(state.birthDate) }
-                            
-                            WheelDatePicker(
-                                initialDate = state.birthDate,
-                                onDateSelected = { selectedDate = it }
-                            )
-                            
-                            Spacer(Modifier.height(16.dp))
-                            Button(
-                                onClick = { 
-                                    viewModel.updateBirthDate(selectedDate)
-                                    showDatePicker = false 
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Сохранить")
-                            }
-                        }
-                    }
-                }
-                
                 item { Spacer(Modifier.height(32.dp)) }
                 
                 // Delete Account
@@ -401,6 +362,21 @@ fun AccountScreen(
                 item { Spacer(Modifier.height(32.dp)) }
             }
         }
+    }
+
+    if (showDatePicker) {
+        BirthdayPickerDialog(
+            initialDate = state.birthDate,
+            onDateSaved = { newDate ->
+                viewModel.updateBirthDate(newDate)
+                showDatePicker = false
+            },
+            onDateDeleted = {
+                viewModel.updateBirthDate("")
+                showDatePicker = false
+            },
+            onDismiss = { showDatePicker = false }
+        )
     }
 
     if (showPhoneChange) {
