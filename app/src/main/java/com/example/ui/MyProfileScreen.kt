@@ -238,394 +238,260 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
             .build()
     }
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(MaterialTheme.colorScheme.background)
-        .nestedScroll(nestedScrollConnection)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F0F12))
+            .nestedScroll(nestedScrollConnection)
     ) {
-        // --- Header Image and Title ---
         val scrollOffset = listState.firstVisibleItemScrollOffset.toFloat()
         val firstItemIndex = listState.firstVisibleItemIndex
         val actualScroll = if (firstItemIndex == 0) scrollOffset else headerHeightPx
         val collapseFraction = (actualScroll / headerHeightPx).coerceIn(0f, 1f)
-        val avatarZoomScale = 1f + (overscrollAnimatable.value / 650f).coerceIn(0f, 0.40f)
+        val avatarZoomScale = 1f + (overscrollAnimatable.value / 600f).coerceIn(0f, 0.40f)
         val dynamicHeaderHeight = headerHeightDp + (overscrollAnimatable.value / density.density).dp
 
-        // Framed Telegram-Style Avatar Carousel Header with Spring Zoom Physics on Pull
-        Surface(
-            shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
-            border = BorderStroke(
-                width = 1.2.dp,
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.35f),
-                        Color.White.copy(alpha = 0.08f),
-                        Color(0xFF222A3B).copy(alpha = 0.65f)
-                    )
-                )
-            ),
-            color = Color(0xFF13161F),
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(dynamicHeaderHeight)
-                .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize()
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                HorizontalPager(
-                    state = avatarPagerState,
-                    modifier = Modifier.fillMaxSize()
-                ) { page ->
-                    val actualPage = (page % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
+            // Item 0: Framed Telegram-Style Avatar Carousel Header
+            item {
+                Surface(
+                    shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.12f)
+                    ),
+                    color = Color(0xFF13151B),
+                    shadowElevation = 8.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(dynamicHeaderHeight)
+                        .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+                ) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .allowHardware(false)
-                                .data(userAvatarsList[actualPage])
-                                .crossfade(true)
-                                .build(),
-                            imageLoader = imageLoader,
-                            contentDescription = "Avatar $actualPage",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    scaleX = avatarZoomScale
-                                    scaleY = avatarZoomScale
-                                    transformOrigin = TransformOrigin(0.5f, 0.35f)
-                                },
-                            contentScale = ContentScale.Crop
-                        )
-                        // Gradient overlay at bottom of image
+                        HorizontalPager(
+                            state = avatarPagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                            val actualPage = (page % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .allowHardware(false)
+                                        .data(userAvatarsList[actualPage])
+                                        .crossfade(true)
+                                        .build(),
+                                    imageLoader = imageLoader,
+                                    contentDescription = "Avatar $actualPage",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            scaleX = avatarZoomScale
+                                            scaleY = avatarZoomScale
+                                            transformOrigin = TransformOrigin(0.5f, 0.35f)
+                                        },
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+
+                        // Gradient overlay at bottom of photo for text & buttons readability
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(
                                     Brush.verticalGradient(
                                         colors = listOf(
+                                            Color.Black.copy(alpha = 0.35f),
                                             Color.Transparent,
-                                            Color.Black.copy(alpha = 0.20f),
-                                            MaterialTheme.colorScheme.background.copy(alpha = 0.85f),
-                                            MaterialTheme.colorScheme.background
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.40f),
+                                            Color(0xFF0F1014).copy(alpha = 0.88f),
+                                            Color(0xFF0F1014)
                                         ),
-                                        startY = headerHeightPx * 0.42f
+                                        startY = 0f,
+                                        endY = with(density) { dynamicHeaderHeight.toPx() }
                                     )
                                 )
                         )
-                    }
-                }
 
-                // Top Segmented Dash Indicators for Profile Avatars (Telegram style)
-                if (actualAvatarCount > 1) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(top = 10.dp, start = 16.dp, end = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        repeat(actualAvatarCount) { index ->
-                            val isActive = index == currentAvatarIndex
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(2.5.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (isActive) Color.White else Color.White.copy(alpha = 0.35f)
-                                    )
-                            )
-                        }
-                    }
-                }
-
-                // Photo count badge (e.g. 1 / 3)
-                if (actualAvatarCount > 1) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.Black.copy(alpha = 0.55f),
-                        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.2f)),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = 18.dp)
-                    ) {
-                        Text(
-                            text = "${currentAvatarIndex + 1} / $actualAvatarCount",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-
-                // Top Drag Handle Pill indicator
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(top = 22.dp)
-                        .size(width = 36.dp, height = 4.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.5f))
-                )
-
-                // Touch tap zones: left 28% -> previous photo (circular loop), center 44% -> full viewer, right 28% -> next photo (circular loop)
-                Row(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(0.28f)
-                            .fillMaxHeight()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                scope.launch {
-                                    avatarPagerState.animateScrollToPage(avatarPagerState.currentPage - 1)
-                                }
-                            }
-                    )
-                    Box(
-                        modifier = Modifier
-                            .weight(0.44f)
-                            .fillMaxHeight()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                showAvatarViewer = true
-                            }
-                    )
-                    Box(
-                        modifier = Modifier
-                            .weight(0.28f)
-                            .fillMaxHeight()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                scope.launch {
-                                    avatarPagerState.animateScrollToPage(avatarPagerState.currentPage + 1)
-                                }
-                            }
-                    )
-                }
-            }
-        }
-
-        // --- Main Content ---
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationY = overscrollAnimatable.value * 0.85f
-                }
-        ) {
-            item {
-                Spacer(modifier = Modifier.height(headerHeightDp - 85.dp))
-            }
-
-            // Pinned Full-Width Liquid Glass Capsule for Nickname & Status
-            // Stretched from the left to right across the avatar
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(percent = 50),
-                        color = Color(0xFF1E2330).copy(alpha = 0.84f),
-                        border = BorderStroke(
-                            width = 1.3.dp,
-                            brush = Brush.verticalGradient(
-                                listOf(
-                                    Color.White.copy(alpha = 0.55f),
-                                    Color.White.copy(alpha = 0.14f),
-                                    Color(0xFF3B445B).copy(alpha = 0.30f)
-                                )
-                            )
-                        ),
-                        shadowElevation = 10.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color(0xFF384055).copy(alpha = 0.88f),
-                                            Color(0xFF1E2332).copy(alpha = 0.94f),
-                                            Color(0xFF121522).copy(alpha = 0.97f)
-                                        )
-                                    )
-                                )
-                        ) {
-                            // Top liquid glass sheen reflection highlight
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                Color.White.copy(alpha = 0.28f),
-                                                Color.White.copy(alpha = 0.06f),
-                                                Color.Transparent
-                                            ),
-                                            startY = 0f,
-                                            endY = 40f
-                                        )
-                                    )
-                            )
-
-                            Column(
+                        // Top Segmented Dash Indicators for Profile Avatars (Telegram style)
+                        if (actualAvatarCount > 1) {
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 24.dp, vertical = 10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                    .statusBarsPadding()
+                                    .padding(top = 10.dp, start = 16.dp, end = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                // Clean Nickname (Display Name) without blue icon module
-                                Text(
-                                    text = activeAccount.displayName,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    fontSize = 19.sp,
-                                    letterSpacing = 0.3.sp
-                                )
-
-                                val isLive = viewModel.isUserStreaming(activeAccount.id)
-                                val activeStream = viewModel.getActiveStream(activeAccount.id)
-
-                                if (isLive) {
-                                    Spacer(Modifier.height(3.dp))
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
+                                repeat(actualAvatarCount) { index ->
+                                    val isActive = index == currentAvatarIndex
+                                    Box(
                                         modifier = Modifier
-                                            .background(Color(0xFFE91E63), RoundedCornerShape(percent = 50))
-                                            .clickable { navController.navigate("broadcast") }
-                                            .padding(horizontal = 10.dp, vertical = 2.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .background(Color.White, CircleShape)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "🔴 В ЭФИРЕ • LIVE (👁 ${activeStream?.viewerCount ?: 1})",
-                                            color = Color.White,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                } else {
-                                    Spacer(Modifier.height(2.dp))
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(7.dp)
-                                                .background(Color(0xFF4ADE80), CircleShape)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = if (activeAccount.customStatus.isNotBlank()) activeAccount.customStatus else "в сети",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = Color(0xFF4ADE80),
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 12.sp
-                                        )
-                                    }
+                                            .weight(1f)
+                                            .height(2.5.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isActive) Color.White else Color.White.copy(alpha = 0.35f)
+                                            )
+                                    )
                                 }
                             }
                         }
-                    }
-                }
-            }
 
-            val isLive = viewModel.isUserStreaming(activeAccount.id)
-            val activeStream = viewModel.getActiveStream(activeAccount.id)
+                        // Number badge (e.g. 1 / 3) matching Telegram screenshot
+                        if (actualAvatarCount > 1) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.Black.copy(alpha = 0.60f),
+                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .statusBarsPadding()
+                                    .padding(top = 46.dp, end = 16.dp)
+                            ) {
+                                Text(
+                                    text = "${currentAvatarIndex + 1} / $actualAvatarCount",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
 
-            if (isLive) {
-                item {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                            .clickable { navController.navigate("broadcast") },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE91E63).copy(alpha = 0.15f)),
-                        border = BorderStroke(1.5.dp, Color(0xFFE91E63))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        // Touch tap zones: left 28% -> previous photo, center 44% -> full viewer, right 28% -> next photo
+                        Row(modifier = Modifier.fillMaxSize()) {
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
-                                    .background(Color(0xFFE91E63), CircleShape),
-                                contentAlignment = Alignment.Center
+                                    .weight(0.28f)
+                                    .fillMaxHeight()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        scope.launch {
+                                            avatarPagerState.animateScrollToPage(avatarPagerState.currentPage - 1)
+                                        }
+                                    }
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.44f)
+                                    .fillMaxHeight()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        showAvatarViewer = true
+                                    }
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.28f)
+                                    .fillMaxHeight()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        scope.launch {
+                                            avatarPagerState.animateScrollToPage(avatarPagerState.currentPage + 1)
+                                        }
+                                    }
+                            )
+                        }
+
+                        // Bottom section on photo: Name, Status, and the 3 Action Buttons (matching Screenshot 1)
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                text = activeAccount.displayName,
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 23.sp
+                            )
+                            
+                            val isLive = viewModel.isUserStreaming(activeAccount.id)
+                            val activeStream = viewModel.getActiveStream(activeAccount.id)
+
+                            if (isLive) {
+                                Spacer(Modifier.height(3.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .background(Color(0xFFE91E63), RoundedCornerShape(percent = 50))
+                                        .clickable { navController.navigate("broadcast") }
+                                        .padding(horizontal = 10.dp, vertical = 3.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .background(Color.White, CircleShape)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "🔴 В ЭФИРЕ • LIVE (👁 ${activeStream?.viewerCount ?: 1})",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            } else {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = if (activeAccount.customStatus.isNotBlank()) activeAccount.customStatus else "в сети",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = 0.72f),
+                                    fontSize = 14.sp
+                                )
+                            }
+
+                            Spacer(Modifier.height(14.dp))
+
+                            // 3 Action Buttons directly on the photo header (Screenshot 1)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Filled.LiveTv, contentDescription = null, tint = Color.White)
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Вы ведете прямую трансляцию",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFE91E63)
+                                TelegramProfileButton(
+                                    icon = Icons.Filled.AddAPhoto,
+                                    text = "Выбрать фото",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        photoPickerLauncher.launch(
+                                            androidx.activity.result.PickVisualMediaRequest(
+                                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                            )
+                                        )
+                                    }
                                 )
-                                Text(
-                                    text = "Зрителей: ${activeStream?.viewerCount ?: 1} • Нажмите для перехода",
-                                    style = MaterialTheme.typography.bodySmall
+                                TelegramProfileButton(
+                                    icon = Icons.Filled.Edit,
+                                    text = "Изменить",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { navController.navigate("settings/profile") }
+                                )
+                                TelegramProfileButton(
+                                    icon = Icons.Filled.Settings,
+                                    text = "Настройки",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { navController.navigate("settings") }
                                 )
                             }
-                            Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = null, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
             }
-            
-            // Action Buttons
+
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ProfileActionButton(
-                        icon = Icons.Filled.AddAPhoto,
-                        text = "Выбрать фото",
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            photoPickerLauncher.launch(
-                                androidx.activity.result.PickVisualMediaRequest(
-                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
-                                )
-                            )
-                        }
-                    )
-                    ProfileActionButton(
-                        icon = Icons.Filled.Edit,
-                        text = "Изменить",
-                        modifier = Modifier.weight(1f),
-                        onClick = { navController.navigate("settings/profile") }
-                    )
-                    ProfileActionButton(
-                        icon = Icons.Filled.Settings,
-                        text = "Настройки",
-                        modifier = Modifier.weight(1f),
-                        onClick = { navController.navigate("settings") }
-                    )
-                }
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
             // Pinned Exclusive Gifts in Profile Header (Phase 4)
@@ -726,58 +592,111 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 }
             }
 
-            // Tabs
+            // Tabs (matching Screenshot 4: Pill-styled tabs)
             item {
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = Color.Transparent,
-                    divider = {}
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Публикации") }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("Архив публикаций") }
-                    )
-                }
-            }
-            
-            // Publications Empty State
-            item {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 48.dp, bottom = 120.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.Start
                 ) {
-                    Text(
-                        text = "Публикаций пока нет...",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Публикуйте фотографии и видео в\nсвоём профиле",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { showAddPublicationSheet = true },
-                        shape = RoundedCornerShape(20.dp)
+                    Surface(
+                        onClick = { selectedTab = 0 },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (selectedTab == 0) Color(0xFF2C223C) else Color.Transparent
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Добавить")
+                        Text(
+                            text = "Публикации",
+                            color = if (selectedTab == 0) Color(0xFFD8B4FE) else Color.Gray,
+                            fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        onClick = { selectedTab = 1 },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (selectedTab == 1) Color(0xFF2C223C) else Color.Transparent
+                    ) {
+                        Text(
+                            text = "Архив публикаций",
+                            color = if (selectedTab == 1) Color(0xFFD8B4FE) else Color.Gray,
+                            fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+                        )
                     }
                 }
             }
+            
+            // Publications Grid (matching Screenshot 4)
+            item {
+                val samplePubs = listOf(
+                    "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=400" to "👁 3",
+                    "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=400" to "▶ 0:57 👁 1",
+                    "https://images.unsplash.com/photo-1511512578047-dfb367046420?w=400" to "👁 3"
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        samplePubs.forEach { (imgUrl, viewsText) ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .aspectRatio(0.85f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF1E2026))
+                            ) {
+                                AsyncImage(
+                                    model = imgUrl,
+                                    contentDescription = "Publication",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color.Black.copy(alpha = 0.65f),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(4.dp)
+                                ) {
+                                    Text(
+                                        text = viewsText,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(110.dp))
+                }
+            }
+        }
+
+        // Floating Pill Button "[ 📷 Добавить ]" matching Screenshot 4
+        Button(
+            onClick = { showAddPublicationSheet = true },
+            shape = RoundedCornerShape(24.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB57EDC)),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 20.dp)
+                .height(46.dp)
+        ) {
+            Icon(Icons.Filled.PhotoCamera, contentDescription = null, tint = Color.White, modifier = Modifier.size(19.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Добавить", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
 
         // --- Top App Bar ---
@@ -1413,6 +1332,47 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 dismissButton = {
                     TextButton(onClick = { showEditBioDialog = false }) { Text("Отмена") }
                 }
+            )
+        }
+    }
+}
+
+@Composable
+fun TelegramProfileButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(64.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF1E2128).copy(alpha = 0.88f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+        shadowElevation = 3.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = text,
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = text,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                textAlign = TextAlign.Center
             )
         }
     }
