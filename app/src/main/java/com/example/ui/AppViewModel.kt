@@ -1166,9 +1166,24 @@ class AppViewModel(
             println("Exported history for $chatId: \n$encryptedBackup")
         }
     }
-    fun updateProfile(id: String, username: String, displayName: String, bio: String, profilePicUrl: String, customStatus: String = "", phoneNumber: String = "", dateOfBirth: String = "", socialMedia: String = "") {
+    fun updateProfile(
+        id: String, 
+        username: String, 
+        displayName: String, 
+        bio: String, 
+        profilePicUrl: String, 
+        customStatus: String? = null, 
+        phoneNumber: String? = null, 
+        dateOfBirth: String? = null, 
+        socialMedia: String? = null
+    ) {
+        val current = activeAccount.value
+        val finalStatus = customStatus ?: current?.customStatus ?: ""
+        val finalPhone = phoneNumber ?: current?.phoneNumber ?: ""
+        val finalDob = dateOfBirth ?: current?.dateOfBirth ?: ""
+        val finalSocial = socialMedia ?: current?.socialMedia ?: ""
         viewModelScope.launch {
-            repository.updateProfile(id, username, displayName, bio, profilePicUrl, customStatus, phoneNumber, dateOfBirth, socialMedia)
+            repository.updateProfile(id, username, displayName, bio, profilePicUrl, finalStatus, finalPhone, finalDob, finalSocial)
         }
     }
     

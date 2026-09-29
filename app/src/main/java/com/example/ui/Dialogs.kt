@@ -6,6 +6,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -45,10 +46,21 @@ fun AvatarViewerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = true, dismissOnBackPress = true)
     ) {
+        val actualCount = avatars.size
+        val virtualCount = if (actualCount > 1) 100_000 else 1
+        val initialVirtualPage = if (actualCount > 1) {
+            val mid = virtualCount / 2
+            mid - (mid % actualCount) + initialPage.coerceIn(0, actualCount - 1)
+        } else 0
+
         val pagerState = rememberPagerState(
-            initialPage = initialPage.coerceIn(0, (avatars.size - 1).coerceAtLeast(0)),
-            pageCount = { avatars.size }
+            initialPage = initialVirtualPage,
+            pageCount = { virtualCount }
         )
+
+        val currentActualIndex = if (actualCount > 0) {
+            (pagerState.currentPage % actualCount).let { if (it < 0) it + actualCount else it }
+        } else 0
 
         val coroutineScope = rememberCoroutineScope()
         val offsetY = remember { Animatable(0f) }
@@ -135,11 +147,43 @@ fun AvatarViewerDialog(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
+                    val itemIndex = (page % actualCount).let { if (it < 0) it + actualCount else it }
                     AsyncImage(
-                        model = avatars[page],
-                        contentDescription = "Profile Avatar $page",
+                        model = avatars[itemIndex],
+                        contentDescription = "Profile Avatar $itemIndex",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
+                    )
+                }
+
+                // Tap zones: left side prev, right side next
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(0.3f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                                }
+                            }
+                    )
+                    Spacer(modifier = Modifier.weight(0.4f))
+                    Box(
+                        modifier = Modifier
+                            .weight(0.3f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                }
+                            }
                     )
                 }
 
@@ -161,15 +205,15 @@ fun AvatarViewerDialog(
                         .statusBarsPadding()
                         .padding(top = 22.dp, start = 16.dp, end = 16.dp)
                 ) {
-                    if (avatars.size > 1) {
+                    if (actualCount > 1) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            repeat(avatars.size) { index ->
-                                val isCurrent = pagerState.currentPage == index
+                            repeat(actualCount) { index ->
+                                val isCurrent = currentActualIndex == index
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)

@@ -101,7 +101,10 @@ fun AccountScreen(
                     username = "@" + state.username.removePrefix("@"),
                     displayName = state.firstName + if (state.lastName.isNotBlank()) " ${state.lastName}" else "",
                     bio = state.bio,
-                    profilePicUrl = state.avatarUrl ?: activeAccount.profilePicUrl
+                    profilePicUrl = state.avatarUrl ?: activeAccount.profilePicUrl,
+                    phoneNumber = state.phone,
+                    dateOfBirth = state.birthDate,
+                    socialMedia = state.socialLinks["telegram"] ?: activeAccount.socialMedia
                 )
             }
             viewModel.resetSuccessFlag()

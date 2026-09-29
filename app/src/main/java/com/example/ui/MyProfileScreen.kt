@@ -83,44 +83,32 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
     
     val profileSpringSpec = remember {
         spring<Float>(
-            dampingRatio = Spring.DampingRatioLowBouncy,
+            dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow
         )
     }
-    val avatarPanAnimatable = remember { Animatable(0f) }
-    var isAvatarDragging by remember { mutableStateOf(false) }
-    val dismissThresholdPx = with(density) { 140.dp.toPx() }
+    val overscrollAnimatable = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
-    var addedAvatars by remember(activeAccount.id) {
-        mutableStateOf<List<String>>(emptyList())
-    }
-    val persistentAvatar = remember(activeAccount.id, activeAccount.profilePicUrl) {
-        AvatarStorageManager.getAvatar(
-            context,
-            EntityType.ACCOUNT,
-            activeAccount.id,
-            activeAccount.profilePicUrl
+    var userAvatarsList by remember(activeAccount.id, activeAccount.profilePicUrl) {
+        mutableStateOf(
+            AvatarStorageManager.getUserAvatarList(context, activeAccount.id, activeAccount.profilePicUrl)
         )
     }
-    val avatars = remember(activeAccount.id, persistentAvatar, addedAvatars) {
-        val list = mutableListOf<String>()
-        list.addAll(addedAvatars)
-        if (!list.contains(persistentAvatar)) {
-            list.add(0, persistentAvatar)
-        }
-        val defaults = listOf(
-            "https://picsum.photos/seed/${activeAccount.id}_1/800",
-            "https://picsum.photos/seed/${activeAccount.id}_2/800"
-        )
-        for (item in defaults) {
-            if (!list.contains(item)) {
-                list.add(item)
-            }
-        }
-        list
-    }
-    val avatarPagerState = rememberPagerState(initialPage = 0, pageCount = { avatars.size })
+
+    val actualAvatarCount = userAvatarsList.size
+    val virtualAvatarCount = if (actualAvatarCount > 1) 100_000 else 1
+    val initialVirtualPage = if (actualAvatarCount > 1) {
+        val mid = virtualAvatarCount / 2
+        mid - (mid % actualAvatarCount)
+    } else 0
+    val avatarPagerState = rememberPagerState(
+        initialPage = initialVirtualPage,
+        pageCount = { virtualAvatarCount }
+    )
+    val currentAvatarIndex = if (actualAvatarCount > 0) {
+        (avatarPagerState.currentPage % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
+    } else 0
 
     val photoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
@@ -133,7 +121,9 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                     entityType = EntityType.ACCOUNT,
                     entityId = activeAccount.id
                 )
-                addedAvatars = listOf(savedPath) + addedAvatars.filter { it != savedPath }
+                AvatarStorageManager.addUserAvatar(context, activeAccount.id, savedPath)
+                val updatedList = AvatarStorageManager.getUserAvatarList(context, activeAccount.id, savedPath)
+                userAvatarsList = updatedList
                 viewModel.updateProfile(
                     id = activeAccount.id,
                     username = activeAccount.username,
@@ -145,7 +135,10 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                     dateOfBirth = activeAccount.dateOfBirth,
                     socialMedia = activeAccount.socialMedia
                 )
-                avatarPagerState.animateScrollToPage(0)
+                if (updatedList.size > 1) {
+                    val mid = virtualAvatarCount / 2
+                    avatarPagerState.scrollToPage(mid - (mid % updatedList.size))
+                }
                 Toast.makeText(context, "Фотография профиля успешно добавлена!", Toast.LENGTH_SHORT).show()
             }
         }
@@ -154,10 +147,10 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (avatarPanAnimatable.value > 0f && available.y < 0) {
-                    val consumed = available.y.coerceAtLeast(-avatarPanAnimatable.value)
+                if (overscrollAnimatable.value > 0f && available.y < 0) {
+                    val consumed = available.y.coerceAtLeast(-overscrollAnimatable.value)
                     scope.launch {
-                        avatarPanAnimatable.snapTo(avatarPanAnimatable.value + consumed)
+                        overscrollAnimatable.snapTo(overscrollAnimatable.value + consumed)
                     }
                     return Offset(0f, consumed)
                 }
@@ -170,10 +163,10 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 source: NestedScrollSource
             ): Offset {
                 if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
-                    val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.20f, 0.65f)
+                    val damping = (1f - (overscrollAnimatable.value / 600f)).coerceIn(0.18f, 0.55f)
                     val delta = available.y * damping
                     scope.launch {
-                        avatarPanAnimatable.snapTo(avatarPanAnimatable.value + delta)
+                        overscrollAnimatable.snapTo(overscrollAnimatable.value + delta)
                     }
                     return Offset(0f, available.y)
                 }
@@ -181,13 +174,10 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (avatarPanAnimatable.value > dismissThresholdPx || available.y > 600f) {
-                    val screenHeight = with(density) { 900.dp.toPx() }
-                    avatarPanAnimatable.animateTo(screenHeight, profileSpringSpec)
-                    navController.popBackStack()
-                    return available
-                } else if (avatarPanAnimatable.value > 0f) {
-                    avatarPanAnimatable.animateTo(0f, profileSpringSpec)
+                if (overscrollAnimatable.value > 0f) {
+                    scope.launch {
+                        overscrollAnimatable.animateTo(0f, profileSpringSpec)
+                    }
                 }
                 return Velocity.Zero
             }
@@ -229,8 +219,8 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
 
     if (showAvatarViewer) {
         AvatarViewerDialog(
-            avatars = avatars,
-            initialPage = avatarPagerState.currentPage,
+            avatars = userAvatarsList,
+            initialPage = currentAvatarIndex,
             onDismiss = { showAvatarViewer = false }
         )
     }
@@ -258,8 +248,10 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
         val firstItemIndex = listState.firstVisibleItemIndex
         val actualScroll = if (firstItemIndex == 0) scrollOffset else headerHeightPx
         val collapseFraction = (actualScroll / headerHeightPx).coerceIn(0f, 1f)
+        val avatarZoomScale = 1f + (overscrollAnimatable.value / 650f).coerceIn(0f, 0.40f)
+        val dynamicHeaderHeight = headerHeightDp + (overscrollAnimatable.value / density.density).dp
 
-        // Framed Telegram-Style Avatar Carousel Header with Spring Physics on Swipe Down
+        // Framed Telegram-Style Avatar Carousel Header with Spring Zoom Physics on Pull
         Surface(
             shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
             border = BorderStroke(
@@ -276,66 +268,31 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
             shadowElevation = 8.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(headerHeightDp)
-                .graphicsLayer {
-                    translationY = avatarPanAnimatable.value
-                }
-                .pointerInput(Unit) {
-                    var dragAccumulator = 0f
-                    detectVerticalDragGestures(
-                        onDragStart = {
-                            isAvatarDragging = true
-                            dragAccumulator = avatarPanAnimatable.value
-                        },
-                        onDragEnd = {
-                            isAvatarDragging = false
-                            if (avatarPanAnimatable.value > dismissThresholdPx) {
-                                scope.launch {
-                                    val screenHeight = with(density) { 900.dp.toPx() }
-                                    avatarPanAnimatable.animateTo(screenHeight, profileSpringSpec)
-                                    navController.popBackStack()
-                                }
-                            } else {
-                                scope.launch {
-                                    avatarPanAnimatable.animateTo(0f, profileSpringSpec)
-                                }
-                            }
-                        },
-                        onDragCancel = {
-                            isAvatarDragging = false
-                            scope.launch {
-                                avatarPanAnimatable.animateTo(0f, profileSpringSpec)
-                            }
-                        },
-                        onVerticalDrag = { change, dragAmount ->
-                            if (dragAmount > 0 || avatarPanAnimatable.value > 0f) {
-                                change.consume()
-                                val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.20f, 0.75f)
-                                dragAccumulator += dragAmount * damping
-                                val nextOffset = dragAccumulator.coerceAtLeast(0f)
-                                scope.launch {
-                                    avatarPanAnimatable.snapTo(nextOffset)
-                                }
-                            }
-                        }
-                    )
-                }
+                .height(dynamicHeaderHeight)
+                .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 HorizontalPager(
                     state = avatarPagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
+                    val actualPage = (page % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
                     Box(modifier = Modifier.fillMaxSize()) {
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .allowHardware(false)
-                                .data(avatars[page])
+                                .data(userAvatarsList[actualPage])
                                 .crossfade(true)
                                 .build(),
                             imageLoader = imageLoader,
-                            contentDescription = "Avatar $page",
-                            modifier = Modifier.fillMaxSize(),
+                            contentDescription = "Avatar $actualPage",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    scaleX = avatarZoomScale
+                                    scaleY = avatarZoomScale
+                                    transformOrigin = TransformOrigin(0.5f, 0.35f)
+                                },
                             contentScale = ContentScale.Crop
                         )
                         // Gradient overlay at bottom of image
@@ -358,7 +315,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 }
 
                 // Top Segmented Dash Indicators for Profile Avatars (Telegram style)
-                if (avatars.size > 1) {
+                if (actualAvatarCount > 1) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -366,8 +323,8 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             .padding(top = 10.dp, start = 16.dp, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        avatars.indices.forEach { index ->
-                            val isActive = index == avatarPagerState.currentPage
+                        repeat(actualAvatarCount) { index ->
+                            val isActive = index == currentAvatarIndex
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -382,7 +339,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 }
 
                 // Photo count badge (e.g. 1 / 3)
-                if (avatars.size > 1) {
+                if (actualAvatarCount > 1) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = Color.Black.copy(alpha = 0.55f),
@@ -392,7 +349,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             .padding(end = 16.dp, bottom = 18.dp)
                     ) {
                         Text(
-                            text = "${avatarPagerState.currentPage + 1} / ${avatars.size}",
+                            text = "${currentAvatarIndex + 1} / $actualAvatarCount",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -412,7 +369,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                         .background(Color.White.copy(alpha = 0.5f))
                 )
 
-                // Touch tap zones: left 28% -> previous photo, center 44% -> full viewer, right 28% -> next photo
+                // Touch tap zones: left 28% -> previous photo (circular loop), center 44% -> full viewer, right 28% -> next photo (circular loop)
                 Row(modifier = Modifier.fillMaxSize()) {
                     Box(
                         modifier = Modifier
@@ -422,10 +379,8 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                if (avatarPagerState.currentPage > 0) {
-                                    scope.launch {
-                                        avatarPagerState.animateScrollToPage(avatarPagerState.currentPage - 1)
-                                    }
+                                scope.launch {
+                                    avatarPagerState.animateScrollToPage(avatarPagerState.currentPage - 1)
                                 }
                             }
                     )
@@ -448,10 +403,8 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                if (avatarPagerState.currentPage < avatars.size - 1) {
-                                    scope.launch {
-                                        avatarPagerState.animateScrollToPage(avatarPagerState.currentPage + 1)
-                                    }
+                                scope.launch {
+                                    avatarPagerState.animateScrollToPage(avatarPagerState.currentPage + 1)
                                 }
                             }
                     )
@@ -465,7 +418,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationY = avatarPanAnimatable.value
+                    translationY = overscrollAnimatable.value * 0.85f
                 }
         ) {
             item {
@@ -874,6 +827,13 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             onDismissRequest = { showMoreMenu = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Изменить профиль") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    navController.navigate("settings/profile")
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Изменить цвет профиля") },
                                 onClick = { showMoreMenu = false }
                             )
@@ -940,6 +900,13 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             expanded = showMoreMenu2,
                             onDismissRequest = { showMoreMenu2 = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Изменить профиль") },
+                                onClick = {
+                                    showMoreMenu2 = false
+                                    navController.navigate("settings/profile")
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Изменить цвет профиля") },
                                 onClick = { showMoreMenu2 = false }

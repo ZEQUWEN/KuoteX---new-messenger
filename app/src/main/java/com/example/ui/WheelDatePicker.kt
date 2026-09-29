@@ -251,6 +251,12 @@ fun <T> WheelPicker(
     val snapBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val coroutineScope = rememberCoroutineScope()
 
+    LaunchedEffect(initialIndex, items) {
+        if (initialIndex in items.indices && !listState.isScrollInProgress && listState.firstVisibleItemIndex != initialIndex) {
+            listState.scrollToItem(initialIndex)
+        }
+    }
+
     LaunchedEffect(listState, items) {
         snapshotFlow {
             if (listState.isScrollInProgress) null else listState.firstVisibleItemIndex
@@ -318,7 +324,11 @@ fun BirthdayPickerDialog(
     onDateDeleted: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var currentDateSelection by remember { mutableStateOf(initialDate.ifBlank { "21 июн. 2005" }) }
+    var currentDateSelection by remember(initialDate) { 
+        mutableStateOf(
+            if (initialDate.isNotBlank()) formatBirthDateShort(initialDate) else "21 июн. 2005"
+        ) 
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
