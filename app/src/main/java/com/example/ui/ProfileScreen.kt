@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
@@ -312,19 +313,12 @@ fun ProfileScreen(
         }
     }
 
-    val actualAvatarCount = userAvatarsList.size
-    val virtualAvatarCount = if (actualAvatarCount > 1) 100_000 else 1
-    val initialVirtualPage = if (actualAvatarCount > 1) {
-        val mid = virtualAvatarCount / 2
-        mid - (mid % actualAvatarCount)
-    } else 0
+    val actualAvatarCount = userAvatarsList.size.coerceAtLeast(1)
     val profilePagerState = rememberPagerState(
-        initialPage = initialVirtualPage,
-        pageCount = { virtualAvatarCount }
+        initialPage = 0,
+        pageCount = { actualAvatarCount }
     )
-    val currentAvatarIndex = if (actualAvatarCount > 0) {
-        (profilePagerState.currentPage % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
-    } else 0
+    val currentAvatarIndex = profilePagerState.currentPage.coerceIn(0, actualAvatarCount - 1)
 
     var isUploadingAvatars by remember { mutableStateOf(false) }
     var uploadStatusText by remember { mutableStateOf("") }
@@ -366,9 +360,8 @@ fun ProfileScreen(
                             socialMedia = activeAccount!!.socialMedia
                         )
                     }
-                    if (updatedList.size > 1) {
-                        val mid = virtualAvatarCount / 2
-                        profilePagerState.scrollToPage(mid - (mid % updatedList.size))
+                    if (updatedList.isNotEmpty()) {
+                        profilePagerState.animateScrollToPage(0)
                     }
                     android.widget.Toast.makeText(
                         context,
@@ -402,7 +395,7 @@ fun ProfileScreen(
                 if (avatarPanAnimatable.value > 0f && available.y < 0) {
                     val consumed = available.y.coerceAtLeast(-avatarPanAnimatable.value)
                     scope.launch {
-                        avatarPanAnimatable.snapTo(avatarPanAnimatable.value + consumed)
+                        avatarPanAnimatable.snapTo((avatarPanAnimatable.value + consumed).coerceAtLeast(0f))
                     }
                     return Offset(0f, consumed)
                 }
@@ -415,12 +408,18 @@ fun ProfileScreen(
                 source: NestedScrollSource
             ): Offset {
                 if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
-                    val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.18f, 0.55f)
-                    val delta = available.y * damping
-                    scope.launch {
-                        avatarPanAnimatable.snapTo(avatarPanAnimatable.value + delta)
+                    // Strict limit on pull-down overscroll distance (max 120f)
+                    val maxOverscroll = 120f
+                    val current = avatarPanAnimatable.value
+                    if (current < maxOverscroll) {
+                        val damping = (1f - (current / maxOverscroll)).coerceIn(0.12f, 0.40f)
+                        val delta = available.y * damping
+                        val next = (current + delta).coerceIn(0f, maxOverscroll)
+                        scope.launch {
+                            avatarPanAnimatable.snapTo(next)
+                        }
+                        return Offset(0f, available.y)
                     }
-                    return Offset(0f, available.y)
                 }
                 return Offset.Zero
             }
@@ -444,8 +443,9 @@ fun ProfileScreen(
         )
     }
 
-    val dynamicHeaderHeight = 390.dp + (avatarPanAnimatable.value / density.density).dp
-    val avatarZoomScale = 1f + (avatarPanAnimatable.value / 600f).coerceIn(0f, 0.40f)
+    // Strict limits on header expansion and avatar zoom scale (prevent infinite zoom bug)
+    val dynamicHeaderHeight = 390.dp + (avatarPanAnimatable.value / density.density).dp.coerceIn(0.dp, 40.dp)
+    val avatarZoomScale = (1f + (avatarPanAnimatable.value / 600f)).coerceIn(1.0f, 1.15f)
 
     Scaffold(
         containerColor = Color(0xFF000000),
@@ -509,10 +509,20 @@ fun ProfileScreen(
                     Box(modifier = Modifier.fillMaxSize()) {
                         HorizontalPager(
                             state = profilePagerState,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            userScrollEnabled = actualAvatarCount > 1
                         ) { page ->
-                            val actualPage = (page % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
-                            Box(modifier = Modifier.fillMaxSize()) {
+                            val actualPage = page.coerceIn(0, userAvatarsList.lastIndex)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable(
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        showAvatarViewer = true
+                                    }
+                            ) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .allowHardware(false)
@@ -610,68 +620,6 @@ fun ProfileScreen(
                                     )
                                 }
                             }
-                        }
-
-                        // Number badge (e.g. 1 / 3) matching Telegram screenshot
-                        if (actualAvatarCount > 1) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.Black.copy(alpha = 0.60f),
-                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .statusBarsPadding()
-                                    .padding(top = 46.dp, end = 16.dp)
-                            ) {
-                                Text(
-                                    text = "${currentAvatarIndex + 1} / $actualAvatarCount",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        // Touch tap zones: left 28% -> previous photo, center 44% -> full viewer, right 28% -> next photo
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.28f)
-                                    .fillMaxHeight()
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        scope.launch {
-                                            profilePagerState.animateScrollToPage(profilePagerState.currentPage - 1)
-                                        }
-                                    }
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.44f)
-                                    .fillMaxHeight()
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        showAvatarViewer = true
-                                    }
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.28f)
-                                    .fillMaxHeight()
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        scope.launch {
-                                            profilePagerState.animateScrollToPage(profilePagerState.currentPage + 1)
-                                        }
-                                    }
-                            )
                         }
 
                         // Top Bar overlay with Back and 3-dots Menu

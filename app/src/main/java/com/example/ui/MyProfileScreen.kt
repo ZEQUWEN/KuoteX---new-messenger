@@ -20,6 +20,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberScrollableState
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.*
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -96,19 +98,12 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
         )
     }
 
-    val actualAvatarCount = userAvatarsList.size
-    val virtualAvatarCount = if (actualAvatarCount > 1) 100_000 else 1
-    val initialVirtualPage = if (actualAvatarCount > 1) {
-        val mid = virtualAvatarCount / 2
-        mid - (mid % actualAvatarCount)
-    } else 0
+    val actualAvatarCount = userAvatarsList.size.coerceAtLeast(1)
     val avatarPagerState = rememberPagerState(
-        initialPage = initialVirtualPage,
-        pageCount = { virtualAvatarCount }
+        initialPage = 0,
+        pageCount = { actualAvatarCount }
     )
-    val currentAvatarIndex = if (actualAvatarCount > 0) {
-        (avatarPagerState.currentPage % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
-    } else 0
+    val currentAvatarIndex = avatarPagerState.currentPage.coerceIn(0, actualAvatarCount - 1)
 
     var isUploadingAvatars by remember { mutableStateOf(false) }
     var uploadStatusText by remember { mutableStateOf("") }
@@ -147,9 +142,8 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                         dateOfBirth = activeAccount.dateOfBirth,
                         socialMedia = activeAccount.socialMedia
                     )
-                    if (updatedList.size > 1) {
-                        val mid = virtualAvatarCount / 2
-                        avatarPagerState.scrollToPage(mid - (mid % updatedList.size))
+                    if (updatedList.isNotEmpty()) {
+                        avatarPagerState.animateScrollToPage(0)
                     }
                     Toast.makeText(
                         context,
@@ -173,7 +167,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 if (overscrollAnimatable.value > 0f && available.y < 0) {
                     val consumed = available.y.coerceAtLeast(-overscrollAnimatable.value)
                     scope.launch {
-                        overscrollAnimatable.snapTo(overscrollAnimatable.value + consumed)
+                        overscrollAnimatable.snapTo((overscrollAnimatable.value + consumed).coerceAtLeast(0f))
                     }
                     return Offset(0f, consumed)
                 }
@@ -186,12 +180,18 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 source: NestedScrollSource
             ): Offset {
                 if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
-                    val damping = (1f - (overscrollAnimatable.value / 600f)).coerceIn(0.18f, 0.55f)
-                    val delta = available.y * damping
-                    scope.launch {
-                        overscrollAnimatable.snapTo(overscrollAnimatable.value + delta)
+                    // Strict limit on pull-down overscroll distance (max 120f)
+                    val maxOverscroll = 120f
+                    val current = overscrollAnimatable.value
+                    if (current < maxOverscroll) {
+                        val damping = (1f - (current / maxOverscroll)).coerceIn(0.12f, 0.40f)
+                        val delta = available.y * damping
+                        val next = (current + delta).coerceIn(0f, maxOverscroll)
+                        scope.launch {
+                            overscrollAnimatable.snapTo(next)
+                        }
+                        return Offset(0f, available.y)
                     }
-                    return Offset(0f, available.y)
                 }
                 return Offset.Zero
             }
@@ -271,8 +271,8 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
         val firstItemIndex = listState.firstVisibleItemIndex
         val actualScroll = if (firstItemIndex == 0) scrollOffset else headerHeightPx
         val collapseFraction = (actualScroll / headerHeightPx).coerceIn(0f, 1f)
-        val avatarZoomScale = 1f + (overscrollAnimatable.value / 600f).coerceIn(0f, 0.40f)
-        val dynamicHeaderHeight = headerHeightDp + (overscrollAnimatable.value / density.density).dp
+        val avatarZoomScale = (1f + (overscrollAnimatable.value / 600f)).coerceIn(1.0f, 1.15f)
+        val dynamicHeaderHeight = headerHeightDp + (overscrollAnimatable.value / density.density).dp.coerceIn(0.dp, 40.dp)
 
         LazyColumn(
             state = listState,
@@ -296,10 +296,20 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         HorizontalPager(
                             state = avatarPagerState,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            userScrollEnabled = actualAvatarCount > 1
                         ) { page ->
-                            val actualPage = (page % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
-                            Box(modifier = Modifier.fillMaxSize()) {
+                            val actualPage = page.coerceIn(0, userAvatarsList.lastIndex)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable(
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        showAvatarViewer = true
+                                    }
+                            ) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .allowHardware(false)
@@ -398,68 +408,6 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                     )
                                 }
                             }
-                        }
-
-                        // Number badge (e.g. 1 / 3) matching Telegram screenshot
-                        if (actualAvatarCount > 1) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.Black.copy(alpha = 0.60f),
-                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .statusBarsPadding()
-                                    .padding(top = 46.dp, end = 16.dp)
-                            ) {
-                                Text(
-                                    text = "${currentAvatarIndex + 1} / $actualAvatarCount",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        // Touch tap zones: left 28% -> previous photo, center 44% -> full viewer, right 28% -> next photo
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.28f)
-                                    .fillMaxHeight()
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        scope.launch {
-                                            avatarPagerState.animateScrollToPage(avatarPagerState.currentPage - 1)
-                                        }
-                                    }
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.44f)
-                                    .fillMaxHeight()
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        showAvatarViewer = true
-                                    }
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.28f)
-                                    .fillMaxHeight()
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        scope.launch {
-                                            avatarPagerState.animateScrollToPage(avatarPagerState.currentPage + 1)
-                                        }
-                                    }
-                            )
                         }
 
                         // Bottom section on photo: Name, Status, and the 3 Action Buttons (matching Screenshot 1)
