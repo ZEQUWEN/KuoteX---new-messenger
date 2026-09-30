@@ -86,6 +86,7 @@ dependencies {
   implementation("com.google.firebase:firebase-messaging")
   implementation("com.google.firebase:firebase-auth")
   implementation("com.google.firebase:firebase-firestore")
+  implementation("com.google.firebase:firebase-storage")
   implementation(libs.accompanist.permissions)
   implementation(libs.androidx.security.crypto)
   implementation(libs.tink.android)

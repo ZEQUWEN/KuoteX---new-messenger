@@ -209,6 +209,84 @@ object AvatarStorageManager {
     }
 
     /**
+     * Adds multiple avatar URLs to the user's avatar carousel list.
+     */
+    fun addUserAvatars(context: Context, userId: String, avatarUrls: List<String>) {
+        val currentList = getUserAvatarList(context, userId).toMutableList()
+        avatarUrls.reversed().forEach { url ->
+            currentList.remove(url)
+            currentList.add(0, url)
+        }
+        val jsonArray = org.json.JSONArray()
+        currentList.forEach { jsonArray.put(it) }
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString("user_avatars_$userId", jsonArray.toString()).apply()
+        if (avatarUrls.isNotEmpty()) {
+            _avatarEvents.tryEmit(AvatarUpdateEvent(EntityType.ACCOUNT, userId, avatarUrls.first()))
+        }
+    }
+
+    /**
+     * Uploads multiple avatar images to Firebase Storage under users/{userId}/avatars/{filename}.jpg
+     * Saves each image to persistent internal storage first as fallback.
+     * Returns the list of final URLs (Firebase download URLs or local file fallback URIs).
+     */
+    suspend fun uploadAvatarsToFirebase(
+        context: Context,
+        userId: String,
+        sourceUris: List<Uri>,
+        onProgress: (Int, Int) -> Unit = { _, _ -> }
+    ): List<String> = withContext(Dispatchers.IO) {
+        val uploadedUrls = mutableListOf<String>()
+        val storage = try {
+            com.google.firebase.storage.FirebaseStorage.getInstance()
+        } catch (e: Exception) {
+            Log.w(TAG, "FirebaseStorage initialization failed, using local storage fallback", e)
+            null
+        }
+
+        for ((index, uri) in sourceUris.withIndex()) {
+            onProgress(index + 1, sourceUris.size)
+            // Save locally first to guarantee offline availability
+            val localPath = saveAvatarFromUri(context, uri, EntityType.ACCOUNT, userId)
+            var finalUrl = localPath
+
+            if (storage != null) {
+                try {
+                    val timestamp = System.currentTimeMillis()
+                    val fileName = "avatar_${timestamp}_${index}.jpg"
+                    val storageRef = storage.reference.child("users/$userId/avatars/$fileName")
+                    
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream != null) {
+                        val uploadTask = inputStream.use { stream ->
+                            storageRef.putStream(stream)
+                        }
+                        com.google.android.gms.tasks.Tasks.await(uploadTask)
+                        try {
+                            val downloadUri = com.google.android.gms.tasks.Tasks.await(storageRef.downloadUrl)
+                            val urlString = downloadUri.toString()
+                            if (urlString.isNotBlank()) {
+                                finalUrl = urlString
+                                Log.d(TAG, "Uploaded avatar to Firebase Storage: $finalUrl")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed retrieving download URL, using local path: $localPath", e)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firebase Storage upload error for avatar $index, fallback to local: $localPath", e)
+                    finalUrl = localPath
+                }
+            }
+
+            addUserAvatar(context, userId, finalUrl)
+            uploadedUrls.add(finalUrl)
+        }
+        uploadedUrls
+    }
+
+    /**
      * Deletes an avatar from the user's avatar carousel list.
      */
     fun deleteUserAvatar(context: Context, userId: String, avatarUrl: String) {

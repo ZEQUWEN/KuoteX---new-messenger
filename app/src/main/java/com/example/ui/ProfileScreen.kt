@@ -30,12 +30,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -48,11 +50,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Message
@@ -63,6 +67,7 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.ReportProblem
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Stars
 import androidx.compose.material.icons.filled.VolumeMute
@@ -70,9 +75,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -280,20 +287,103 @@ fun ProfileScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var selectedGiftFilter by remember { mutableStateOf("Все подарки") }
 
-    // Hero Avatar URLs with persistent avatar storage
-    val persistentAvatar = remember(chatId) {
-        AvatarStorageManager.getAvatar(
-            context,
-            EntityType.ACCOUNT,
-            chatId,
-            "https://picsum.photos/seed/${chatId}_rem/800/800"
+    val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
+    val isMe = activeAccount?.id == chatId
+
+    // Hero Avatar URLs with persistent avatar storage & Firebase uploads
+    var userAvatarsList by remember(chatId) {
+        mutableStateOf(
+            AvatarStorageManager.getUserAvatarList(
+                context = context,
+                userId = chatId,
+                currentAvatar = if (isMe) activeAccount?.profilePicUrl else null
+            )
         )
     }
-    val avatars = remember(chatId, persistentAvatar) {
-        listOf(
-            persistentAvatar,
-            "https://picsum.photos/seed/${chatId}_1/800/800"
-        )
+
+    LaunchedEffect(chatId) {
+        AvatarStorageManager.avatarEvents.collect { event ->
+            if (event.entityId == chatId) {
+                userAvatarsList = AvatarStorageManager.getUserAvatarList(
+                    context = context,
+                    userId = chatId
+                )
+            }
+        }
+    }
+
+    val actualAvatarCount = userAvatarsList.size
+    val virtualAvatarCount = if (actualAvatarCount > 1) 100_000 else 1
+    val initialVirtualPage = if (actualAvatarCount > 1) {
+        val mid = virtualAvatarCount / 2
+        mid - (mid % actualAvatarCount)
+    } else 0
+    val profilePagerState = rememberPagerState(
+        initialPage = initialVirtualPage,
+        pageCount = { virtualAvatarCount }
+    )
+    val currentAvatarIndex = if (actualAvatarCount > 0) {
+        (profilePagerState.currentPage % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
+    } else 0
+
+    var isUploadingAvatars by remember { mutableStateOf(false) }
+    var uploadStatusText by remember { mutableStateOf("") }
+    var showAvatarViewer by remember { mutableStateOf(false) }
+
+    val photoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch {
+                isUploadingAvatars = true
+                uploadStatusText = "Загрузка фото в Firebase Storage..."
+                try {
+                    val uploadedUrls = AvatarStorageManager.uploadAvatarsToFirebase(
+                        context = context,
+                        userId = chatId,
+                        sourceUris = uris,
+                        onProgress = { current, total ->
+                            uploadStatusText = "Загрузка в Firebase Storage: $current/$total"
+                        }
+                    )
+                    val updatedList = AvatarStorageManager.getUserAvatarList(
+                        context = context,
+                        userId = chatId,
+                        currentAvatar = uploadedUrls.firstOrNull()
+                    )
+                    userAvatarsList = updatedList
+                    if (isMe && activeAccount != null) {
+                        val primaryAvatar = uploadedUrls.firstOrNull() ?: activeAccount!!.profilePicUrl
+                        viewModel.updateProfile(
+                            id = activeAccount!!.id,
+                            username = activeAccount!!.username,
+                            displayName = activeAccount!!.displayName,
+                            bio = activeAccount!!.bio,
+                            profilePicUrl = primaryAvatar,
+                            customStatus = activeAccount!!.customStatus,
+                            phoneNumber = activeAccount!!.phoneNumber,
+                            dateOfBirth = activeAccount!!.dateOfBirth,
+                            socialMedia = activeAccount!!.socialMedia
+                        )
+                    }
+                    if (updatedList.size > 1) {
+                        val mid = virtualAvatarCount / 2
+                        profilePagerState.scrollToPage(mid - (mid % updatedList.size))
+                    }
+                    android.widget.Toast.makeText(
+                        context,
+                        if (uris.size == 1) "Фото успешно загружено в Firebase Storage!"
+                        else "Загружено ${uris.size} фото в Firebase Storage!",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context, "Ошибка сохранения: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                } finally {
+                    isUploadingAvatars = false
+                    uploadStatusText = ""
+                }
+            }
+        }
     }
 
     val density = LocalDensity.current
@@ -304,9 +394,6 @@ fun ProfileScreen(
         )
     }
     val avatarPanAnimatable = remember { Animatable(0f) }
-    val dismissThresholdPx = with(density) { 140.dp.toPx() }
-    val profilePagerState = rememberPagerState(initialPage = 0, pageCount = { avatars.size })
-
     val listState = rememberLazyListState()
 
     val nestedScrollConnection = remember {
@@ -328,7 +415,7 @@ fun ProfileScreen(
                 source: NestedScrollSource
             ): Offset {
                 if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
-                    val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.20f, 0.65f)
+                    val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.18f, 0.55f)
                     val delta = available.y * damping
                     scope.launch {
                         avatarPanAnimatable.snapTo(avatarPanAnimatable.value + delta)
@@ -339,18 +426,26 @@ fun ProfileScreen(
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (avatarPanAnimatable.value > dismissThresholdPx || available.y > 600f) {
-                    val screenHeight = with(density) { 900.dp.toPx() }
-                    avatarPanAnimatable.animateTo(screenHeight, profileSpringSpec)
-                    navController.popBackStack()
-                    return available
-                } else if (avatarPanAnimatable.value > 0f) {
-                    avatarPanAnimatable.animateTo(0f, profileSpringSpec)
+                if (avatarPanAnimatable.value > 0f) {
+                    scope.launch {
+                        avatarPanAnimatable.animateTo(0f, profileSpringSpec)
+                    }
                 }
                 return Velocity.Zero
             }
         }
     }
+
+    if (showAvatarViewer) {
+        AvatarViewerDialog(
+            avatars = userAvatarsList,
+            initialPage = currentAvatarIndex,
+            onDismiss = { showAvatarViewer = false }
+        )
+    }
+
+    val dynamicHeaderHeight = 390.dp + (avatarPanAnimatable.value / density.density).dp
+    val avatarZoomScale = 1f + (avatarPanAnimatable.value / 600f).coerceIn(0f, 0.40f)
 
     Scaffold(
         containerColor = Color(0xFF000000),
@@ -396,107 +491,78 @@ fun ProfileScreen(
                 .nestedScroll(nestedScrollConnection)
                 .padding(padding)
         ) {
-            // 1. HERO HEADER IMAGE WITH OVERLAYS (matching Screenshot 1 & 3)
+            // 1. Framed Telegram-Style Avatar Carousel Header
             item {
                 Surface(
                     shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
                     border = BorderStroke(
-                        width = 1.2.dp,
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.35f),
-                                Color.White.copy(alpha = 0.08f),
-                                Color(0xFF222A3B).copy(alpha = 0.65f)
-                            )
-                        )
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.12f)
                     ),
-                    color = Color(0xFF13161F),
+                    color = Color(0xFF13151B),
                     shadowElevation = 8.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(380.dp)
-                        .graphicsLayer {
-                            translationY = avatarPanAnimatable.value
-                        }
-                        .pointerInput(Unit) {
-                            var dragAccumulator = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = {
-                                    dragAccumulator = avatarPanAnimatable.value
-                                },
-                                onDragEnd = {
-                                    if (avatarPanAnimatable.value > dismissThresholdPx) {
-                                        scope.launch {
-                                            val screenHeight = with(density) { 900.dp.toPx() }
-                                            avatarPanAnimatable.animateTo(screenHeight, profileSpringSpec)
-                                            navController.popBackStack()
-                                        }
-                                    } else {
-                                        scope.launch {
-                                            avatarPanAnimatable.animateTo(0f, profileSpringSpec)
-                                        }
-                                    }
-                                },
-                                onDragCancel = {
-                                    scope.launch {
-                                        avatarPanAnimatable.animateTo(0f, profileSpringSpec)
-                                    }
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    if (dragAmount > 0 || avatarPanAnimatable.value > 0f) {
-                                        change.consume()
-                                        val damping = (1f - (avatarPanAnimatable.value / 600f)).coerceIn(0.20f, 0.75f)
-                                        dragAccumulator += dragAmount * damping
-                                        val nextOffset = dragAccumulator.coerceAtLeast(0f)
-                                        scope.launch {
-                                            avatarPanAnimatable.snapTo(nextOffset)
-                                        }
-                                    }
-                                }
-                            )
-                        }
+                        .height(dynamicHeaderHeight)
+                        .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         HorizontalPager(
                             state = profilePagerState,
                             modifier = Modifier.fillMaxSize()
                         ) { page ->
+                            val actualPage = (page % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
                             Box(modifier = Modifier.fillMaxSize()) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
-                                        .data(avatars[page])
+                                        .allowHardware(false)
+                                        .data(userAvatarsList[actualPage])
                                         .crossfade(true)
                                         .build(),
-                                    contentDescription = "Avatar $page",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Box(
+                                    contentDescription = "Avatar $actualPage",
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                colors = listOf(
-                                                    Color.Black.copy(alpha = 0.45f),
-                                                    Color.Transparent,
-                                                    Color.Black.copy(alpha = 0.95f)
-                                                )
-                                            )
-                                        )
+                                        .graphicsLayer {
+                                            scaleX = avatarZoomScale
+                                            scaleY = avatarZoomScale
+                                            transformOrigin = TransformOrigin(0.5f, 0.35f)
+                                        },
+                                    contentScale = ContentScale.Crop
                                 )
                             }
                         }
 
-                        // Top Segmented Dash Indicators (Telegram style)
-                        if (avatars.size > 1) {
+                        // Gradient overlay at bottom of photo for text & buttons readability
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Black.copy(alpha = 0.35f),
+                                            Color.Transparent,
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.40f),
+                                            Color(0xFF0F1014).copy(alpha = 0.88f),
+                                            Color(0xFF0F1014)
+                                        ),
+                                        startY = 0f,
+                                        endY = with(density) { dynamicHeaderHeight.toPx() }
+                                    )
+                                )
+                        )
+
+                        // Top Segmented Dash Indicators for Profile Avatars (Telegram style)
+                        if (actualAvatarCount > 1) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .statusBarsPadding()
                                     .padding(top = 10.dp, start = 16.dp, end = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                avatars.indices.forEach { index ->
-                                    val isActive = index == profilePagerState.currentPage
+                                repeat(actualAvatarCount) { index ->
+                                    val isActive = index == currentAvatarIndex
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
@@ -510,18 +576,55 @@ fun ProfileScreen(
                             }
                         }
 
-                        // Photo count badge (e.g. 1 / 3)
-                        if (avatars.size > 1) {
+                        // Firebase Storage Uploading Banner Indicator
+                        AnimatedVisibility(
+                            visible = isUploadingAvatars,
+                            enter = fadeIn(),
+                            exit = fadeOut(),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .padding(top = 44.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFF673AB7).copy(alpha = 0.95f),
+                                shadowElevation = 8.dp,
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(15.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = uploadStatusText.ifBlank { "Загрузка в Firebase Storage..." },
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
+                        // Number badge (e.g. 1 / 3) matching Telegram screenshot
+                        if (actualAvatarCount > 1) {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = Color.Black.copy(alpha = 0.55f),
-                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.2f)),
+                                color = Color.Black.copy(alpha = 0.60f),
+                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
                                 modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(end = 16.dp, bottom = 18.dp)
+                                    .align(Alignment.TopEnd)
+                                    .statusBarsPadding()
+                                    .padding(top = 46.dp, end = 16.dp)
                             ) {
                                 Text(
-                                    text = "${profilePagerState.currentPage + 1} / ${avatars.size}",
+                                    text = "${currentAvatarIndex + 1} / $actualAvatarCount",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
@@ -530,260 +633,301 @@ fun ProfileScreen(
                             }
                         }
 
-                        // Top Drag Handle Pill indicator
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 18.dp)
-                                .size(width = 36.dp, height = 4.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.5f))
-                        )
+                        // Touch tap zones: left 28% -> previous photo, center 44% -> full viewer, right 28% -> next photo
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.28f)
+                                    .fillMaxHeight()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        scope.launch {
+                                            profilePagerState.animateScrollToPage(profilePagerState.currentPage - 1)
+                                        }
+                                    }
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.44f)
+                                    .fillMaxHeight()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        showAvatarViewer = true
+                                    }
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.28f)
+                                    .fillMaxHeight()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        scope.launch {
+                                            profilePagerState.animateScrollToPage(profilePagerState.currentPage + 1)
+                                        }
+                                    }
+                            )
+                        }
 
                         // Top Bar overlay with Back and 3-dots Menu
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .statusBarsPadding()
                                 .padding(horizontal = 8.dp, vertical = 8.dp)
                                 .align(Alignment.TopCenter),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                        IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Назад",
-                                tint = Color.White,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-
-                        Box {
-                            IconButton(onClick = { showOptionsMenu = true }) {
+                            IconButton(
+                                onClick = { navController.popBackStack() },
+                                modifier = Modifier.background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                            ) {
                                 Icon(
-                                    Icons.Filled.MoreVert,
-                                    contentDescription = "Опции",
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Назад",
                                     tint = Color.White,
                                     modifier = Modifier.size(26.dp)
                                 )
                             }
 
-                            // 3-dots popup menu (matching Screenshot 1)
-                            DropdownMenu(
-                                expanded = showOptionsMenu,
-                                onDismissRequest = { showOptionsMenu = false },
-                                modifier = Modifier.background(Color(0xFF282538))
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Автоудаление", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Color.LightGray) },
-                                    onClick = { showOptionsMenu = false }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Создать ярлык", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, tint = Color.LightGray) },
-                                    onClick = { showOptionsMenu = false }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Добавить контакт", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = Color.LightGray) },
-                                    onClick = {
-                                        isContactAdded = !isContactAdded
-                                        showOptionsMenu = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Отправить подарок", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Filled.ShoppingBag, contentDescription = null, tint = Color(0xFFC084FC)) },
-                                    onClick = {
-                                        showOptionsMenu = false
-                                        scope.launch {
-                                            kotlinx.coroutines.delay(30)
-                                            navController.navigate("gifts_marketplace?userId=$chatId&userName=${chat.title}")
+                            Box {
+                                IconButton(
+                                    onClick = { showOptionsMenu = true },
+                                    modifier = Modifier.background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.MoreVert,
+                                        contentDescription = "Опции",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+
+                                // 3-dots popup menu (matching Screenshot 1)
+                                DropdownMenu(
+                                    expanded = showOptionsMenu,
+                                    onDismissRequest = { showOptionsMenu = false },
+                                    modifier = Modifier.background(Color(0xFF282538))
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Прикрепить фото (Firebase)", color = Color.White) },
+                                        leadingIcon = { Icon(Icons.Filled.AddAPhoto, contentDescription = null, tint = Color.LightGray) },
+                                        onClick = {
+                                            showOptionsMenu = false
+                                            photoPickerLauncher.launch(
+                                                androidx.activity.result.PickVisualMediaRequest(
+                                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                )
+                                            )
                                         }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Начать секретный чат", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = Color.LightGray) },
-                                    onClick = { showOptionsMenu = false }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Запретить копирование", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = Color.LightGray) },
-                                    onClick = { showOptionsMenu = false }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Пожаловаться", color = Color(0xFFF87171)) },
-                                    leadingIcon = { Icon(Icons.Filled.ReportProblem, contentDescription = null, tint = Color(0xFFF87171)) },
-                                    onClick = { showOptionsMenu = false }
-                                )
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Автоудаление", color = Color.White) },
+                                        leadingIcon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Color.LightGray) },
+                                        onClick = { showOptionsMenu = false }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Создать ярлык", color = Color.White) },
+                                        leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, tint = Color.LightGray) },
+                                        onClick = { showOptionsMenu = false }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(if (isContactAdded) "Удалить контакт" else "Добавить контакт", color = Color.White) },
+                                        leadingIcon = { Icon(if (isContactAdded) Icons.Filled.PersonRemove else Icons.Filled.PersonAdd, contentDescription = null, tint = Color.LightGray) },
+                                        onClick = {
+                                            isContactAdded = !isContactAdded
+                                            showOptionsMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Отправить подарок", color = Color.White) },
+                                        leadingIcon = { Icon(Icons.Filled.ShoppingBag, contentDescription = null, tint = Color(0xFFC084FC)) },
+                                        onClick = {
+                                            showOptionsMenu = false
+                                            scope.launch {
+                                                kotlinx.coroutines.delay(30)
+                                                navController.navigate("gifts_marketplace?userId=$chatId&userName=${chat.title}")
+                                            }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Начать секретный чат", color = Color.White) },
+                                        leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = Color.LightGray) },
+                                        onClick = { showOptionsMenu = false }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Запретить копирование", color = Color.White) },
+                                        leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = Color.LightGray) },
+                                        onClick = { showOptionsMenu = false }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Пожаловаться", color = Color(0xFFF87171)) },
+                                        leadingIcon = { Icon(Icons.Filled.ReportProblem, contentDescription = null, tint = Color(0xFFF87171)) },
+                                        onClick = { showOptionsMenu = false }
+                                    )
+                                }
                             }
                         }
-                    }
 
-                    // Bottom info on Hero Image (Name, Nickname, Pinned Collectible, Status) in a Rounded Glass Container
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        // Rounded Glass Effect Container around Name & Nickname
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0xFF0D1220).copy(alpha = 0.68f),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                brush = Brush.verticalGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = 0.38f),
-                                        Color.White.copy(alpha = 0.10f),
-                                        Color(0xFF7C4DFF).copy(alpha = 0.28f)
-                                    )
-                                )
-                            ),
-                            shadowElevation = 8.dp,
-                            modifier = Modifier.padding(bottom = 6.dp)
+                        // Bottom info on Hero Image (Name, Nickname, Pinned Collectible, Status) & Action buttons
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                Color(0xFF20263C).copy(alpha = 0.65f),
-                                                Color(0xFF101322).copy(alpha = 0.85f)
-                                            )
-                                        )
-                                    )
-                                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                            // Display Name with Pinned Collectible Badge
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                // Display Name with Pinned Collectible Badge
+                                Text(
+                                    text = chat.title,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    fontSize = 23.sp
+                                )
+
+                                // Pinned rare collectible badge next to username
+                                pinnedCollectible?.let { col ->
+                                    PinnedCollectibleBadge(
+                                        gift = col,
+                                        onClick = { selectedCollectibleDetail = col }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(3.dp))
+
+                            // Rating pill & Online Status
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { showRatingSheet = true },
+                                    color = Color(0xFFC084FC).copy(alpha = 0.25f),
+                                    border = BorderStroke(1.dp, Color(0xFFC084FC).copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = "👑", fontSize = 11.sp)
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "487 / 5K",
+                                            color = Color(0xFFE9D5FF),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = if (presence?.isOnline == true) "в сети" else "был(а) недавно",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Action buttons row (matching Screenshot 1)
+                            if (isMe) {
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(
-                                        text = chat.title,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-
-                                    // Pinned rare collectible badge next to username
-                                    pinnedCollectible?.let { col ->
-                                        PinnedCollectibleBadge(
-                                            gift = col,
-                                            onClick = { selectedCollectibleDetail = col }
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                // Rating pill & Online Status
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Surface(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .clickable { showRatingSheet = true },
-                                        color = Color(0xFFC084FC).copy(alpha = 0.25f),
-                                        border = BorderStroke(1.dp, Color(0xFFC084FC).copy(alpha = 0.5f)),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(text = "👑", fontSize = 11.sp)
-                                            Spacer(modifier = Modifier.width(3.dp))
-                                            Text(
-                                                text = "487 / 5K",
-                                                color = Color(0xFFE9D5FF),
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 11.sp
+                                    TelegramProfileButton(
+                                        icon = Icons.Filled.AddAPhoto,
+                                        text = "Выбрать фото",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            photoPickerLauncher.launch(
+                                                androidx.activity.result.PickVisualMediaRequest(
+                                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                )
                                             )
                                         }
-                                    }
-
-                                    Text(
-                                        text = "был(а) недавно",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.8f)
+                                    )
+                                    TelegramProfileButton(
+                                        icon = Icons.Filled.Edit,
+                                        text = "Изменить",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { navController.navigate("settings/profile") }
+                                    )
+                                    TelegramProfileButton(
+                                        icon = Icons.Filled.Settings,
+                                        text = "Настройки",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { navController.navigate("settings") }
                                     )
                                 }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Quick Action Buttons Row (Чат, Звук, Звонок, Подарок)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            ProfileActionButton(
-                                icon = Icons.Filled.Message,
-                                text = "Чат",
-                                onClick = { navController.navigate("chat/$chatId") }
-                            )
-                            ProfileActionButton(
-                                icon = if (isMuted) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
-                                text = if (isMuted) "Вкл. звук" else "Звук",
-                                onClick = { isMuted = !isMuted }
-                            )
-                            ProfileActionButton(
-                                icon = Icons.Filled.Call,
-                                text = "Звонок",
-                                onClick = { navController.navigate("call/$chatId?isVideo=false") }
-                            )
-                            ProfileActionButton(
-                                icon = Icons.Filled.ShoppingBag,
-                                text = "Подарок",
-                                onClick = {
-                                    navController.navigate("gifts_marketplace?userId=$chatId&userName=${chat.title}")
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    TelegramProfileButton(
+                                        icon = Icons.Filled.Message,
+                                        text = "Чат",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { navController.navigate("chat/$chatId") }
+                                    )
+                                    TelegramProfileButton(
+                                        icon = if (isMuted) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
+                                        text = if (isMuted) "Вкл. звук" else "Звук",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { isMuted = !isMuted }
+                                    )
+                                    TelegramProfileButton(
+                                        icon = Icons.Filled.Call,
+                                        text = "Звонок",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { navController.navigate("call/$chatId?isVideo=false") }
+                                    )
+                                    TelegramProfileButton(
+                                        icon = Icons.Filled.ShoppingBag,
+                                        text = "Подарок",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            navController.navigate("gifts_marketplace?userId=$chatId&userName=${chat.title}")
+                                        }
+                                    )
                                 }
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Audio Status Tag (matching Screenshot 3)
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color.Black.copy(alpha = 0.45f),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(text = "🎵", fontSize = 12.sp)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "<unknown> - Armani West Piano Tiles",
-                                    fontSize = 12.sp,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
                         }
                     }
                 }
             }
-        }
 
-            // 2. USER DETAILS CARD (О себе, Имя пользователя, День рождения)
+            // Distinct visual separation between Avatar Gallery and User Information
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // 2. USER DETAILS CARD (О себе, Имя пользователя, День рождения) - Opaque, Solid Card
             item {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF14121E))
+                        .padding(horizontal = 16.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1B1D23)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
                 ) {
                     Column(
                         modifier = Modifier
@@ -799,12 +943,15 @@ fun ProfileScreen(
                                 color = Color.White,
                                 fontWeight = FontWeight.Normal
                             )
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 text = "О себе",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.Gray
                             )
                         }
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.07f))
 
                         // Username / Имя пользователя
                         val username = if (chat.title.startsWith("@")) chat.title else "@roundPrisma3d"
@@ -813,6 +960,7 @@ fun ProfileScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     clipboardManager.setText(AnnotatedString(username))
+                                    android.widget.Toast.makeText(context, "Имя пользователя скопировано", android.widget.Toast.LENGTH_SHORT).show()
                                 },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
@@ -824,6 +972,7 @@ fun ProfileScreen(
                                     color = Color.White,
                                     fontWeight = FontWeight.Medium
                                 )
+                                Spacer(Modifier.height(2.dp))
                                 Text(
                                     text = "Имя пользователя",
                                     style = MaterialTheme.typography.bodySmall,
@@ -838,6 +987,8 @@ fun ProfileScreen(
                             )
                         }
 
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.07f))
+
                         // Birthday / День рождения
                         Column {
                             Text(
@@ -846,6 +997,7 @@ fun ProfileScreen(
                                 color = Color.White,
                                 fontWeight = FontWeight.Medium
                             )
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 text = "День рождения",
                                 style = MaterialTheme.typography.bodySmall,
@@ -857,33 +1009,36 @@ fun ProfileScreen(
             }
 
             // 3. "ДОБАВИТЬ В КОНТАКТЫ" Button
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { isContactAdded = !isContactAdded },
-                    color = Color(0xFF14121E),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            if (!isMe) {
+                item {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { isContactAdded = !isContactAdded },
+                        color = Color(0xFF1B1D23),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
                     ) {
-                        Icon(
-                            if (isContactAdded) Icons.Filled.PersonRemove else Icons.Filled.PersonAdd,
-                            contentDescription = null,
-                            tint = Color.LightGray,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Text(
-                            text = if (isContactAdded) "Удалить из контактов" else "Добавить в контакты",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (isContactAdded) Icons.Filled.PersonRemove else Icons.Filled.PersonAdd,
+                                contentDescription = null,
+                                tint = Color.LightGray,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                text = if (isContactAdded) "Удалить из контактов" else "Добавить в контакты",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
             }

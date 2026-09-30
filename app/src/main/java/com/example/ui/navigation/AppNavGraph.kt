@@ -514,6 +514,7 @@ fun MainAppNavGraph(
             if (chatId != null) {
                 val chats = viewModel.chats.value
                 val chat = chats.find { it.id == chatId }
+                val activeAccount = viewModel.activeAccount.collectAsState().value
                 CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
                     if (chat?.isBot == true) {
                         BotProfileScreen(
@@ -525,6 +526,11 @@ fun MainAppNavGraph(
                         ChannelProfileScreen(
                             viewModel = viewModel,
                             chatId = chatId,
+                            navController = navController
+                        )
+                    } else if (activeAccount != null && (chatId == activeAccount.id || chatId == activeAccount.username)) {
+                        MyProfileScreen(
+                            viewModel = viewModel,
                             navController = navController
                         )
                     } else {

@@ -110,36 +110,59 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
         (avatarPagerState.currentPage % actualAvatarCount).let { if (it < 0) it + actualAvatarCount else it }
     } else 0
 
+    var isUploadingAvatars by remember { mutableStateOf(false) }
+    var uploadStatusText by remember { mutableStateOf("") }
+
     val photoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
             scope.launch {
-                val savedPath = AvatarStorageManager.saveAvatarFromUri(
-                    context = context,
-                    sourceUri = uri,
-                    entityType = EntityType.ACCOUNT,
-                    entityId = activeAccount.id
-                )
-                AvatarStorageManager.addUserAvatar(context, activeAccount.id, savedPath)
-                val updatedList = AvatarStorageManager.getUserAvatarList(context, activeAccount.id, savedPath)
-                userAvatarsList = updatedList
-                viewModel.updateProfile(
-                    id = activeAccount.id,
-                    username = activeAccount.username,
-                    displayName = activeAccount.displayName,
-                    bio = activeAccount.bio,
-                    profilePicUrl = savedPath,
-                    customStatus = activeAccount.customStatus,
-                    phoneNumber = activeAccount.phoneNumber,
-                    dateOfBirth = activeAccount.dateOfBirth,
-                    socialMedia = activeAccount.socialMedia
-                )
-                if (updatedList.size > 1) {
-                    val mid = virtualAvatarCount / 2
-                    avatarPagerState.scrollToPage(mid - (mid % updatedList.size))
+                isUploadingAvatars = true
+                uploadStatusText = "Загрузка фото в Firebase Storage..."
+                try {
+                    val uploadedUrls = AvatarStorageManager.uploadAvatarsToFirebase(
+                        context = context,
+                        userId = activeAccount.id,
+                        sourceUris = uris,
+                        onProgress = { current, total ->
+                            uploadStatusText = "Загрузка в Firebase Storage: $current/$total"
+                        }
+                    )
+                    val updatedList = AvatarStorageManager.getUserAvatarList(
+                        context = context, 
+                        userId = activeAccount.id, 
+                        currentAvatar = uploadedUrls.firstOrNull()
+                    )
+                    userAvatarsList = updatedList
+                    val primaryAvatar = uploadedUrls.firstOrNull() ?: activeAccount.profilePicUrl
+                    viewModel.updateProfile(
+                        id = activeAccount.id,
+                        username = activeAccount.username,
+                        displayName = activeAccount.displayName,
+                        bio = activeAccount.bio,
+                        profilePicUrl = primaryAvatar,
+                        customStatus = activeAccount.customStatus,
+                        phoneNumber = activeAccount.phoneNumber,
+                        dateOfBirth = activeAccount.dateOfBirth,
+                        socialMedia = activeAccount.socialMedia
+                    )
+                    if (updatedList.size > 1) {
+                        val mid = virtualAvatarCount / 2
+                        avatarPagerState.scrollToPage(mid - (mid % updatedList.size))
+                    }
+                    Toast.makeText(
+                        context,
+                        if (uris.size == 1) "Фото успешно загружено в Firebase Storage!"
+                        else "Загружено ${uris.size} фото в Firebase Storage!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Ошибка сохранения: ${e.message}", Toast.LENGTH_SHORT).show()
+                } finally {
+                    isUploadingAvatars = false
+                    uploadStatusText = ""
                 }
-                Toast.makeText(context, "Фотография профиля успешно добавлена!", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -341,6 +364,42 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             }
                         }
 
+                        // Firebase Storage Uploading Banner Indicator
+                        AnimatedVisibility(
+                            visible = isUploadingAvatars,
+                            enter = fadeIn(),
+                            exit = fadeOut(),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .padding(top = 44.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFF673AB7).copy(alpha = 0.95f),
+                                shadowElevation = 8.dp,
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(15.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = uploadStatusText.ifBlank { "Загрузка в Firebase Storage..." },
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
                         // Number badge (e.g. 1 / 3) matching Telegram screenshot
                         if (actualAvatarCount > 1) {
                             Surface(
@@ -490,33 +549,42 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 }
             }
 
+            // Distinct visual separation between Avatar Gallery and User Information
             item {
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Pinned Exclusive Gifts in Profile Header (Phase 4)
+            // Pinned Exclusive Gifts in Profile Section
             item {
-                com.example.ui.gifts.PinnedGiftsHeader(
-                    gifts = displayedPinnedGifts,
-                    onGiftClick = { gift ->
-                        selectedGiftForDetail = gift
-                    },
-                    onAddGiftClick = {
-                        android.widget.Toast.makeText(context, "Открытие каталога подарков KuoteX 🎁", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                )
+                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    com.example.ui.gifts.PinnedGiftsHeader(
+                        gifts = displayedPinnedGifts,
+                        onGiftClick = { gift ->
+                            selectedGiftForDetail = gift
+                        },
+                        onAddGiftClick = {
+                            android.widget.Toast.makeText(context, "Открытие каталога подарков KuoteX 🎁", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
             }
 
-            // Info Card
+            item {
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // User Information Section (Solid, Opaque, Elevated Card with distinct border and padding)
             item {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 16.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1B1D23)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
                 ) {
-                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                    Column(modifier = Modifier.padding(vertical = 6.dp)) {
                         InfoItem(
                             title = activeAccount.phoneNumber.ifBlank { "+7 (922) 669-26-82" },
                             subtitle = "Телефон",
@@ -526,7 +594,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                 DropdownMenuItem(text = { Text("Изменить номер") }, onClick = { showChangeNumberDialog = true; closeMenu() })
                             }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color.White.copy(alpha = 0.07f))
                         InfoItem(
                             title = activeAccount.bio.takeIf { it.isNotBlank() } ?: "✨Занимаюсь дизайном карточек товаров и вайбкодингом, это моё хобби✨",
                             subtitle = "О себе",
@@ -536,7 +604,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                 DropdownMenuItem(text = { Text("Изменить") }, onClick = { showEditBioDialog = true; closeMenu() })
                             }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color.White.copy(alpha = 0.07f))
                         InfoItem(
                             title = if (activeAccount.username.startsWith("@")) activeAccount.username else "@${activeAccount.username}",
                             subtitle = "Имя пользователя",
@@ -545,7 +613,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                 DropdownMenuItem(text = { Text("Копировать") }, onClick = { clipboardManager.setText(AnnotatedString(activeAccount.username)); closeMenu() })
                             }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color.White.copy(alpha = 0.07f))
                         InfoItem(
                             title = formatBirthDateWithAge(activeAccount.dateOfBirth).takeIf { activeAccount.dateOfBirth.isNotBlank() } ?: "Укажите дату рождения",
                             subtitle = "День рождения",
