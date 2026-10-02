@@ -504,17 +504,15 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
 
             // Pinned Exclusive Gifts in Profile Section
             item {
-                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    com.example.ui.gifts.PinnedGiftsHeader(
-                        gifts = displayedPinnedGifts,
-                        onGiftClick = { gift ->
-                            selectedGiftForDetail = gift
-                        },
-                        onAddGiftClick = {
-                            android.widget.Toast.makeText(context, "Открытие каталога подарков KuoteX 🎁", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
+                com.example.ui.gifts.PinnedGiftsHeader(
+                    gifts = displayedPinnedGifts,
+                    onGiftClick = { gift ->
+                        selectedGiftForDetail = gift
+                    },
+                    onAddGiftClick = {
+                        navController.navigate("gifts_marketplace?userId=${activeAccount.id}&userName=${activeAccount.displayName}")
+                    }
+                )
             }
 
             item {

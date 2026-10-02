@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,7 +73,7 @@ import java.util.Locale
 
 /**
  * PinnedGiftsHeader - Profile header Composable that uses a LazyRow to display PinnedGift objects.
- * Encapsulated inside a Surface container with a rounded shape and a border to visually clip the gift textures.
+ * Encapsulated inside a solid Card container with 20.dp rounded shape and border to match other profile modules.
  */
 @Composable
 fun PinnedGiftsHeader(
@@ -81,77 +82,62 @@ fun PinnedGiftsHeader(
     onGiftClick: (PinnedGift) -> Unit = {},
     onAddGiftClick: () -> Unit = {}
 ) {
-    Surface(
+    Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(22.dp)),
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        tonalElevation = 2.dp,
-        shadowElevation = 4.dp,
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-        )
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1B1D23)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 10.dp)
+                .padding(vertical = 12.dp)
         ) {
-            // Header title & count
+            // Header title & count (Removed "Каталог" button to prevent clutter and text wrapping)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.Start
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Filled.Stars,
-                        contentDescription = null,
-                        tint = Color(0xFFFFD54F),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Закрепленные подарки",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFFFFD54F).copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "${gifts.size}/6",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFFD54F)
-                        )
-                    }
-                }
-
-                Text(
-                    text = "Каталог",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onAddGiftClick() }
+                Icon(
+                    imageVector = Icons.Filled.Stars,
+                    contentDescription = null,
+                    tint = Color(0xFFFFD54F),
+                    modifier = Modifier.size(20.dp)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Закрепленные подарки",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFFFFD54F).copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${gifts.size}/6",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFFD54F)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // LazyRow displaying PinnedGift objects
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(gifts, key = { it.id }) { gift ->
                     PinnedGiftCard(
@@ -160,11 +146,9 @@ fun PinnedGiftsHeader(
                     )
                 }
 
-                // Add/Pin Gift Slot (if < 6 gifts)
-                if (gifts.size < 6) {
-                    item {
-                        AddPinnedGiftSlot(onClick = onAddGiftClick)
-                    }
+                // "Подарки" Slot to browse and purchase gifts in the marketplace
+                item {
+                    AddPinnedGiftSlot(onClick = onAddGiftClick)
                 }
             }
         }
@@ -225,8 +209,8 @@ fun PinnedGiftCard(
 
     Card(
         modifier = modifier
-            .width(132.dp)
-            .height(172.dp)
+            .width(140.dp)
+            .height(182.dp)
             .shadow(
                 elevation = if (gift.upgradeLevel >= 3) 8.dp else 4.dp,
                 shape = RoundedCornerShape(20.dp),
@@ -240,7 +224,7 @@ fun PinnedGiftCard(
             ),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = baseBackdrop),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = if (gift.upgradeLevel >= 3) 2.dp else 1.dp,
             brush = Brush.linearGradient(
                 colors = listOf(
@@ -375,7 +359,7 @@ fun PinnedGiftCard(
 }
 
 /**
- * AddPinnedGiftSlot - Empty slot in carousel to add or pin a new gift.
+ * AddPinnedGiftSlot - Slot in carousel to open the gifts marketplace ("Подарки").
  */
 @Composable
 fun AddPinnedGiftSlot(
@@ -384,15 +368,15 @@ fun AddPinnedGiftSlot(
 ) {
     Card(
         modifier = modifier
-            .width(110.dp)
-            .height(172.dp)
+            .width(122.dp)
+            .height(182.dp)
             .clip(RoundedCornerShape(20.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.4f)),
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.5.dp,
-            color = Color.Gray.copy(alpha = 0.4f)
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF22252E)),
+        border = BorderStroke(
+            width = 1.dp,
+            color = Color.White.copy(alpha = 0.12f)
         )
     ) {
         Column(
@@ -404,25 +388,37 @@ fun AddPinnedGiftSlot(
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .background(Color(0xFF334155), CircleShape),
+                    .size(46.dp)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(Color(0xFF8B5CF6), Color(0xFFC084FC))
+                        ),
+                        CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Filled.Add,
-                    contentDescription = "Добавить",
+                    contentDescription = "Подарки",
                     tint = Color.White,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Закрепить\nподарок",
-                fontSize = 11.sp,
-                color = Color.LightGray,
+                text = "Подарки",
+                fontSize = 13.sp,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Маркетплейс ➔",
+                fontSize = 10.sp,
+                color = Color(0xFFC084FC),
                 fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-                lineHeight = 14.sp
+                textAlign = TextAlign.Center
             )
         }
     }
