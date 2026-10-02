@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stars
 import androidx.compose.material3.Button
@@ -45,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -134,23 +136,126 @@ fun PinnedGiftsHeader(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // LazyRow displaying PinnedGift objects
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(gifts, key = { it.id }) { gift ->
-                    PinnedGiftCard(
-                        gift = gift,
-                        onClick = { onGiftClick(gift) }
-                    )
-                }
+            if (gifts.isEmpty()) {
+                // Friendly Empty State when user has no pinned gifts
+                PinnedGiftsEmptyState(onAddGiftClick = onAddGiftClick)
+            } else {
+                // LazyRow displaying PinnedGift objects
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(gifts, key = { it.id }) { gift ->
+                        PinnedGiftCard(
+                            gift = gift,
+                            onClick = { onGiftClick(gift) }
+                        )
+                    }
 
-                // "Подарки" Slot to browse and purchase gifts in the marketplace
-                item {
-                    AddPinnedGiftSlot(onClick = onAddGiftClick)
+                    // "Подарки" Slot to browse and purchase gifts in the marketplace
+                    item {
+                        AddPinnedGiftSlot(onClick = onAddGiftClick)
+                    }
                 }
             }
+        }
+    }
+}
+
+/**
+ * PinnedGiftsEmptyState - Friendly Empty State displayed when the user has no pinned gifts.
+ * Contains a glowing icon badge, welcoming text, and "Закрепить подарки" action button.
+ */
+@Composable
+fun PinnedGiftsEmptyState(
+    onAddGiftClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // Glowing Badge with Gift Emoji
+        Box(
+            modifier = Modifier
+                .size(74.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF8B5CF6).copy(alpha = 0.35f),
+                            Color(0xFFC084FC).copy(alpha = 0.12f),
+                            Color.Transparent
+                        )
+                    ),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .background(Color(0xFF232035), CircleShape)
+                    .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "🎁",
+                    fontSize = 28.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = "Пока нет закрепленных подарков",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Text(
+            text = "Закрепляйте редкие и памятные подарки на своей странице, чтобы они всегда были на виду у друзей и гостей профиля",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF94A3B8),
+            textAlign = TextAlign.Center,
+            lineHeight = 17.sp,
+            modifier = Modifier.padding(horizontal = 12.dp)
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // "Закрепить подарки" Button
+        Button(
+            onClick = onAddGiftClick,
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .height(46.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF8B5CF6),
+                contentColor = Color.White
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Закрепить подарки",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
         }
     }
 }
@@ -433,7 +538,8 @@ fun AddPinnedGiftSlot(
 fun PinnedGiftDetailBottomSheet(
     gift: PinnedGift?,
     onDismiss: () -> Unit,
-    onUpgradeClick: (PinnedGift) -> Unit
+    onUpgradeClick: (PinnedGift) -> Unit,
+    onUnpinClick: ((PinnedGift) -> Unit)? = null
 ) {
     if (gift == null) return
 
@@ -615,6 +721,40 @@ fun PinnedGiftDetailBottomSheet(
                             fontSize = 13.sp
                         )
                     }
+                }
+            }
+
+            if (onUnpinClick != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            try {
+                                sheetState.hide()
+                            } catch (_: Exception) {}
+                            onUnpinClick(gift)
+                            onDismiss()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF87171))
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PushPin,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = Color(0xFFF87171)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Открепить из витрины профиля",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
                 }
             }
 

@@ -858,6 +858,17 @@ object KuoteXEcosystemFirestoreManager {
     }
 
     /**
+     * Unpin a user gift from the profile showcase
+     */
+    fun unpinUserGift(userId: String, userGiftId: String) {
+        _pinnedGiftsMap.update { currentMap ->
+            val list = currentMap[userId]?.filter { it.userGiftId != userGiftId } ?: emptyList()
+            currentMap + (userId to list)
+        }
+        Log.i(TAG, "Unpinned user gift $userGiftId for user $userId")
+    }
+
+    /**
      * ATOMIC TRANSACTION: Activate or Extend KuoteX VIP Subscription
      */
     suspend fun activateVipSubscriptionAtomic(

@@ -219,7 +219,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
 
     // Initialize gifts for current account if not already in ecosystem state
     LaunchedEffect(activeAccount.id) {
-        if (!pinnedGiftsMap.containsKey(activeAccount.id) || pinnedGiftsMap[activeAccount.id].isNullOrEmpty()) {
+        if (!pinnedGiftsMap.containsKey(activeAccount.id)) {
             val sampleDocs = com.example.ui.gifts.PinnedGift.samplePinnedGifts().map { it.toUserGiftDoc(activeAccount.id) }
             com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.initializeUserGiftsIfEmpty(activeAccount.id, sampleDocs)
         }
@@ -228,12 +228,12 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
     val userPinnedDocs = pinnedGiftsMap[activeAccount.id] ?: emptyList()
     val displayedPinnedGifts = remember(userPinnedDocs, catalogGifts) {
         if (userPinnedDocs.isNotEmpty()) {
-            userPinnedDocs.map { doc ->
+            userPinnedDocs.mapNotNull { doc ->
                 val catalog = catalogGifts.find { it.catalogGiftId == doc.catalogGiftId }
                 com.example.ui.gifts.PinnedGift.fromUserGift(doc, catalog)
             }
         } else {
-            com.example.ui.gifts.PinnedGift.samplePinnedGifts()
+            emptyList()
         }
     }
     var selectedGiftForDetail by remember { mutableStateOf<com.example.ui.gifts.PinnedGift?>(null) }
@@ -879,6 +879,10 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             android.widget.Toast.makeText(context, "Ошибка повышения: ${result.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
+                },
+                onUnpinClick = { gift ->
+                    com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.unpinUserGift(activeAccount.id, gift.id)
+                    android.widget.Toast.makeText(context, "Подарок откреплен от профиля", android.widget.Toast.LENGTH_SHORT).show()
                 }
             )
         }
