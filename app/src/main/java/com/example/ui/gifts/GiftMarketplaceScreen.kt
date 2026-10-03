@@ -14,12 +14,24 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -665,27 +677,49 @@ private fun PurchaseGiftBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     var customMessage by remember { mutableStateOf("") }
     var isAnonymous by remember { mutableStateOf(false) }
     var pinToHeader by remember { mutableStateOf(true) }
+
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val isKeyboardOpen = imeBottom > 0
+    val scrollState = rememberScrollState()
+
+    // Constant real-time monitoring of keyboard state to keep the purchase & send controls
+    // completely visible and prevent the keyboard from overlapping the window
+    LaunchedEffect(isKeyboardOpen) {
+        if (isKeyboardOpen) {
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = Color(0xFF161424),
-        scrimColor = Color.Black.copy(alpha = 0.7f)
+        scrimColor = Color.Black.copy(alpha = 0.7f),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .imePadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(text = gift.emojiIcon, fontSize = 60.sp)
-            Spacer(modifier = Modifier.height(8.dp))
+            // Adaptive header sizing based on keyboard presence
+            Text(
+                text = gift.emojiIcon,
+                fontSize = if (isKeyboardOpen) 42.sp else 60.sp
+            )
+            Spacer(modifier = Modifier.height(if (isKeyboardOpen) 4.dp else 8.dp))
             Text(
                 text = gift.title,
-                style = MaterialTheme.typography.titleLarge,
+                style = if (isKeyboardOpen) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
@@ -695,7 +729,7 @@ private fun PurchaseGiftBottomSheet(
                 color = Color.LightGray
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (isKeyboardOpen) 10.dp else 16.dp))
 
             OutlinedTextField(
                 value = customMessage,
@@ -704,6 +738,13 @@ private fun PurchaseGiftBottomSheet(
                 placeholder = { Text("Напишите теплые слова...") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Done,
+                    capitalization = KeyboardCapitalization.Sentences
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { focusManager.clearFocus() }
+                ),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF8B5CF6),
                     unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
@@ -712,19 +753,19 @@ private fun PurchaseGiftBottomSheet(
                 )
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Options: Anonymous & Pin to Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { isAnonymous = !isAnonymous }
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
-                    Text("Скрыть мое имя (Анонимно)", fontWeight = FontWeight.SemiBold, color = Color.White)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Скрыть мое имя (Анонимно)", fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 13.sp)
                     Text("Имя отправителя будет скрыто от других", fontSize = 11.sp, color = Color.Gray)
                 }
                 androidx.compose.material3.Switch(
@@ -737,12 +778,12 @@ private fun PurchaseGiftBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { pinToHeader = !pinToHeader }
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
-                    Text("Закрепить в профиле", fontWeight = FontWeight.SemiBold, color = Color.White)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Закрепить в профиле", fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 13.sp)
                     Text("Подарок появится в шапке профиля", fontSize = 11.sp, color = Color.Gray)
                 }
                 androidx.compose.material3.Switch(
@@ -751,7 +792,7 @@ private fun PurchaseGiftBottomSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Button(
                 onClick = {
@@ -802,11 +843,14 @@ private fun PurchaseCollectibleBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = Color(0xFF161424),
-        scrimColor = Color.Black.copy(alpha = 0.7f)
+        scrimColor = Color.Black.copy(alpha = 0.7f),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {

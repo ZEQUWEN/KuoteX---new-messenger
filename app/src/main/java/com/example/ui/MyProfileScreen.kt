@@ -19,6 +19,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberScrollableState
@@ -1083,7 +1085,11 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 ) { isScanner ->
                     if (isScanner) {
                         Column(
-                            modifier = Modifier.fillMaxWidth().height(550.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .navigationBarsPadding()
+                                .padding(vertical = 16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
@@ -1144,17 +1150,24 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             }
                         }
                     } else {
+                        val cleanUsername = activeAccount.username.removePrefix("@")
+                        val displayUsername = "@$cleanUsername"
+
                         Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            // QR Code Card
+                            // QR Code Card (adaptive padding, fits gracefully on all screen heights)
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(0.75f)
-                                    .aspectRatio(0.65f)
+                                    .fillMaxWidth(0.82f)
                                     .clip(RoundedCornerShape(24.dp))
-                                    .background(currentTheme.third),
+                                    .background(currentTheme.third)
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1162,34 +1175,34 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                         coil.compose.AsyncImage(
                                             model = activeAccount.profilePicUrl,
                                             contentDescription = null,
-                                            modifier = Modifier.size(64.dp).clip(CircleShape).border(2.dp, currentTheme.first, CircleShape),
+                                            modifier = Modifier.size(54.dp).clip(CircleShape).border(2.dp, currentTheme.first, CircleShape),
                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                         )
                                     } else {
                                         Box(
-                                            modifier = Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).border(2.dp, currentTheme.first, CircleShape),
+                                            modifier = Modifier.size(54.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).border(2.dp, currentTheme.first, CircleShape),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
                                                 activeAccount.displayName.take(1).uppercase(),
                                                 color = MaterialTheme.colorScheme.onPrimary,
-                                                style = MaterialTheme.typography.headlineMedium
+                                                style = MaterialTheme.typography.titleLarge
                                             )
                                         }
                                     }
-                                    Spacer(Modifier.height(16.dp))
+                                    Spacer(Modifier.height(10.dp))
                                     qrBitmap?.let { bmp ->
                                         androidx.compose.foundation.Image(
                                             bitmap = bmp.asImageBitmap(),
                                             contentDescription = "QR Code",
                                             modifier = Modifier
-                                                .size(200.dp)
+                                                .size(175.dp)
                                                 .clip(RoundedCornerShape(16.dp))
                                         )
                                     }
-                                    Spacer(Modifier.height(16.dp))
+                                    Spacer(Modifier.height(10.dp))
                                     Text(
-                                        "@${activeAccount.username}",
+                                        displayUsername,
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = currentTheme.second
@@ -1197,7 +1210,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                 }
                             }
 
-                            Spacer(Modifier.height(24.dp))
+                            Spacer(Modifier.height(16.dp))
 
                             // Controls Row
                             Row(
@@ -1212,19 +1225,19 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                 }
                             }
 
-                            Spacer(Modifier.height(16.dp))
+                            Spacer(Modifier.height(10.dp))
 
                             // Theme selector
                             androidx.compose.foundation.lazy.LazyRow(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 items(themes.size) { index ->
                                     val theme = themes[index]
                                     val isSelected = selectedThemeIndex == index
                                     Box(
                                         modifier = Modifier
-                                            .size(64.dp, 80.dp)
+                                            .size(58.dp, 70.dp)
                                             .clip(RoundedCornerShape(12.dp))
                                             .background(theme.third)
                                             .border(
@@ -1239,30 +1252,55 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                             Icons.Filled.QrCode, 
                                             contentDescription = null, 
                                             tint = theme.second,
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(30.dp)
                                         )
                                     }
                                 }
                             }
 
-                            Spacer(Modifier.height(32.dp))
+                            Spacer(Modifier.height(20.dp))
 
-                            Button(
-                                onClick = {
-                                    val sendIntent = android.content.Intent().apply {
-                                        action = android.content.Intent.ACTION_SEND
-                                        putExtra(android.content.Intent.EXTRA_TEXT, "tg://resolve?domain=${activeAccount.username}")
-                                        type = "text/plain"
-                                    }
-                                    val shareIntent = android.content.Intent.createChooser(sendIntent, "Поделиться профилем")
-                                    context.startActivity(shareIntent)
-                                },
-                                modifier = Modifier.fillMaxWidth().height(50.dp)
+                            // Action buttons: Copy & Share
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Text("Поделиться", fontSize = 16.sp)
+                                OutlinedButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        val clip = android.content.ClipData.newPlainText("Profile Link", "https://t.me/$cleanUsername")
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Ссылка @$cleanUsername скопирована!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                ) {
+                                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Копировать", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val sendIntent = android.content.Intent().apply {
+                                            action = android.content.Intent.ACTION_SEND
+                                            putExtra(android.content.Intent.EXTRA_TEXT, "https://t.me/$cleanUsername")
+                                            type = "text/plain"
+                                        }
+                                        val shareIntent = android.content.Intent.createChooser(sendIntent, "Поделиться профилем")
+                                        context.startActivity(shareIntent)
+                                    },
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Поделиться", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                             
-                            Spacer(Modifier.height(16.dp))
+                            Spacer(Modifier.height(20.dp))
                         }
                     }
                 }
