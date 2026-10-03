@@ -3314,6 +3314,8 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
 
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var showCreateChannelDialog by remember { mutableStateOf(false) }
+    var showQrScanner by remember { mutableStateOf(false) }
+    var showAddContactDialog by remember { mutableStateOf(false) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val dbContacts by viewModel.contacts.collectAsState()
@@ -3377,6 +3379,9 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showQrScanner = true }) {
+                        Icon(Icons.Filled.QrCodeScanner, contentDescription = "Сканировать QR-код")
+                    }
                     IconButton(onClick = { sortByName = !sortByName }) {
                         Icon(Icons.Filled.Sort, contentDescription = "Sort")
                     }
@@ -3386,7 +3391,7 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { /* Add contact placeholder */ },
+                onClick = { showAddContactDialog = true },
                 containerColor = Color(0xFF3B82F6),
                 contentColor = Color.White,
                 shape = CircleShape
@@ -3512,6 +3517,114 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
                 viewModel.createChat(name, desc, photo, isPrivate, linkOrUsername, false, true)
                 showCreateChannelDialog = false
                 navController.popBackStack()
+            }
+        )
+    }
+
+    if (showQrScanner) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showQrScanner = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                com.example.ui.qr.QrCodeScannerView(
+                    viewModel = viewModel,
+                    modifier = Modifier.fillMaxSize(),
+                    onContactAdded = {
+                        showQrScanner = false
+                    },
+                    onCloseScanner = {
+                        showQrScanner = false
+                    }
+                )
+            }
+        }
+    }
+
+    if (showAddContactDialog) {
+        var newContactName by remember { mutableStateOf("") }
+        var newContactPhoneOrUsername by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showAddContactDialog = false },
+            containerColor = Color(0xFF1E1B2E),
+            title = {
+                Text("Новый контакт", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            showAddContactDialog = false
+                            showQrScanner = true
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6))
+                    ) {
+                        Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Сканировать QR-код", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.15f))
+                        Text(" или вручную ", color = Color.Gray, fontSize = 12.sp)
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.15f))
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = newContactName,
+                        onValueChange = { newContactName = it },
+                        label = { Text("Имя контакта") },
+                        placeholder = { Text("Например: Иван Иванов") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = newContactPhoneOrUsername,
+                        onValueChange = { newContactPhoneOrUsername = it },
+                        label = { Text("Номер телефона или @юзернейм") },
+                        placeholder = { Text("+79991234567 или @username") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newContactName.isNotBlank() || newContactPhoneOrUsername.isNotBlank()) {
+                            viewModel.addContact(
+                                name = newContactName.ifBlank { newContactPhoneOrUsername },
+                                phoneNumberOrUsername = newContactPhoneOrUsername
+                            ) {
+                                android.widget.Toast.makeText(context, "Контакт добавлен!", android.widget.Toast.LENGTH_SHORT).show()
+                                showAddContactDialog = false
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddContactDialog = false }) {
+                    Text("Отмена", color = Color.LightGray)
+                }
             }
         )
     }

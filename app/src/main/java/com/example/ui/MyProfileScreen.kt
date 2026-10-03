@@ -1084,71 +1084,16 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                     label = "qr_scanner_transition"
                 ) { isScanner ->
                     if (isScanner) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .verticalScroll(rememberScrollState())
-                                .navigationBarsPadding()
-                                .padding(vertical = 16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text("Сканировать QR-код", style = MaterialTheme.typography.titleLarge)
-                            Spacer(Modifier.height(32.dp))
-                            val infiniteTransition = rememberInfiniteTransition()
-                            val scanAnim by infiniteTransition.animateFloat(
-                                initialValue = 0f,
-                                targetValue = 250f,
-                                animationSpec = infiniteRepeatable(
-                                    animation = tween(2000, easing = LinearEasing),
-                                    repeatMode = RepeatMode.Reverse
-                                )
-                            )
-                            
-                            Box(
-                                modifier = Modifier
-                                    .size(250.dp)
-                                    .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
-                                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(16.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Filled.QrCodeScanner, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.White.copy(alpha = 0.3f))
-                                
-                                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                                    val y = scanAnim.dp.toPx()
-                                    drawLine(
-                                        color = androidx.compose.ui.graphics.Color(0xFF00E676),
-                                        start = Offset(0f, y),
-                                        end = Offset(size.width, y),
-                                        strokeWidth = 4.dp.toPx()
-                                    )
-                                    drawRect(
-                                        brush = Brush.verticalGradient(
-                                            colors = listOf(Color.Transparent, androidx.compose.ui.graphics.Color(0xFF00E676).copy(alpha = 0.3f)),
-                                            startY = y - 40.dp.toPx(),
-                                            endY = y
-                                        ),
-                                        topLeft = Offset(0f, y - 40.dp.toPx()),
-                                        size = androidx.compose.ui.geometry.Size(size.width, 40.dp.toPx())
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(16.dp))
-                            TextButton(onClick = {
+                        com.example.ui.qr.QrCodeScannerView(
+                            viewModel = viewModel,
+                            modifier = Modifier.fillMaxSize(),
+                            onContactAdded = {
                                 showScanner = false
-                                showQrDialog = false
-                                viewModel.startAddAccount()
-                            }) {
-                                Text("Эмуляция сканирования (Добавить аккаунт)")
+                            },
+                            onCloseScanner = {
+                                showScanner = false
                             }
-                            Spacer(Modifier.height(16.dp))
-                            Button(
-                                onClick = { showScanner = false },
-                                modifier = Modifier.fillMaxWidth(0.8f).height(50.dp)
-                            ) {
-                                Text("Мой QR-код", fontSize = 16.sp)
-                            }
-                        }
+                        )
                     } else {
                         val cleanUsername = activeAccount.username.removePrefix("@")
                         val displayUsername = "@$cleanUsername"

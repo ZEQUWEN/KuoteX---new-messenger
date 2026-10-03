@@ -1131,6 +1131,21 @@ class AppViewModel(
         }
     }
 
+    fun addContact(name: String, phoneNumberOrUsername: String, onComplete: ((Contact) -> Unit)? = null) {
+        viewModelScope.launch {
+            val contactId = java.util.UUID.randomUUID().toString()
+            val cleanValue = phoneNumberOrUsername.trim()
+            val newContact = Contact(
+                id = contactId,
+                name = name.ifBlank { cleanValue },
+                phoneNumber = cleanValue,
+                isRegistered = true
+            )
+            repository.insertContact(newContact)
+            onComplete?.invoke(newContact)
+        }
+    }
+
     fun addToContacts(chatId: String) {
         viewModelScope.launch {
             repository.updateContactStatus(chatId, true)
