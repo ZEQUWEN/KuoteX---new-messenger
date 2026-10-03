@@ -1,6 +1,9 @@
 package com.example.ui.gifts
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,6 +63,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,6 +86,7 @@ import androidx.navigation.NavController
 import com.example.data.ecosystem.KuoteXCatalogGiftDoc
 import com.example.data.ecosystem.KuoteXEcosystemFirestoreManager
 import com.example.ui.AppViewModel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -418,9 +424,51 @@ private fun CollectibleMarketplaceCard(
     activeCurrency: CurrencyType,
     onClick: () -> Unit
 ) {
+    val entranceScale = remember { Animatable(0.84f) }
+    val entranceAlpha = remember { Animatable(0f) }
+    val entranceOffsetY = remember { Animatable(18f) }
+
+    LaunchedEffect(gift.id) {
+        coroutineScope {
+            launch {
+                entranceScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                entranceAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                entranceOffsetY.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = entranceScale.value
+                scaleY = entranceScale.value
+                alpha = entranceAlpha.value
+                translationY = entranceOffsetY.value
+            }
             .clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = gift.parsedBackdropColor),
@@ -512,6 +560,42 @@ private fun CatalogGiftCard(
     activeCurrency: CurrencyType,
     onClick: () -> Unit
 ) {
+    val entranceScale = remember { Animatable(0.84f) }
+    val entranceAlpha = remember { Animatable(0f) }
+    val entranceOffsetY = remember { Animatable(18f) }
+
+    LaunchedEffect(gift.catalogGiftId) {
+        coroutineScope {
+            launch {
+                entranceScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                entranceAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                entranceOffsetY.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+    }
+
     val bgColor = try {
         Color(android.graphics.Color.parseColor(gift.backdropColorHex))
     } catch (_: Exception) {
@@ -521,6 +605,12 @@ private fun CatalogGiftCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = entranceScale.value
+                scaleY = entranceScale.value
+                alpha = entranceAlpha.value
+                translationY = entranceOffsetY.value
+            }
             .clickable { onClick() },
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = bgColor),

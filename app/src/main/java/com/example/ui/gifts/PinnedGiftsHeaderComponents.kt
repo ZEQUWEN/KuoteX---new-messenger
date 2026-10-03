@@ -1,18 +1,23 @@
 package com.example.ui.gifts
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -148,13 +153,17 @@ fun PinnedGiftsHeader(
                     items(gifts, key = { it.id }) { gift ->
                         PinnedGiftCard(
                             gift = gift,
-                            onClick = { onGiftClick(gift) }
+                            onClick = { onGiftClick(gift) },
+                            modifier = Modifier.animateItem()
                         )
                     }
 
                     // "Подарки" Slot to browse and purchase gifts in the marketplace
                     item {
-                        AddPinnedGiftSlot(onClick = onAddGiftClick)
+                        AddPinnedGiftSlot(
+                            onClick = onAddGiftClick,
+                            modifier = Modifier.animateItem()
+                        )
                     }
                 }
             }
@@ -309,6 +318,54 @@ fun PinnedGiftCard(
         label = "bounce"
     )
 
+    // Subtle spring entrance animation when the gift item is added to the list
+    val entranceScale = remember { Animatable(0.78f) }
+    val entranceAlpha = remember { Animatable(0f) }
+    val entranceOffsetY = remember { Animatable(24f) }
+
+    androidx.compose.runtime.LaunchedEffect(gift.id) {
+        kotlinx.coroutines.coroutineScope {
+            launch {
+                entranceScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                entranceAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                entranceOffsetY.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+    }
+
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "press_scale"
+    )
+
     val baseBackdrop = gift.parsedBackdropColor
     val accentGlow = gift.parsedAccentColor
 
@@ -316,6 +373,13 @@ fun PinnedGiftCard(
         modifier = modifier
             .width(140.dp)
             .height(182.dp)
+            .graphicsLayer {
+                val combinedScale = entranceScale.value * pressScale
+                scaleX = combinedScale
+                scaleY = combinedScale
+                alpha = entranceAlpha.value
+                translationY = entranceOffsetY.value
+            }
             .shadow(
                 elevation = if (gift.upgradeLevel >= 3) 8.dp else 4.dp,
                 shape = RoundedCornerShape(20.dp),
@@ -323,7 +387,7 @@ fun PinnedGiftCard(
             )
             .clip(RoundedCornerShape(20.dp))
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
             ),
@@ -471,12 +535,31 @@ fun AddPinnedGiftSlot(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "add_slot_press_scale"
+    )
+
     Card(
         modifier = modifier
             .width(122.dp)
             .height(182.dp)
+            .graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+            }
             .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF22252E)),
         border = BorderStroke(

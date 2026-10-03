@@ -1231,10 +1231,53 @@ private fun UserGiftProfileItem(
     gift: PinnedGift,
     onClick: () -> Unit
 ) {
+    // Subtle spring animation when the gift item appears in the profile list
+    val entranceScale = remember { Animatable(0.82f) }
+    val entranceAlpha = remember { Animatable(0f) }
+    val entranceOffsetY = remember { Animatable(18f) }
+
+    LaunchedEffect(gift.id) {
+        kotlinx.coroutines.coroutineScope {
+            launch {
+                entranceScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                entranceAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                entranceOffsetY.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .height(110.dp)
+            .graphicsLayer {
+                scaleX = entranceScale.value
+                scaleY = entranceScale.value
+                alpha = entranceAlpha.value
+                translationY = entranceOffsetY.value
+            }
             .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() },
         color = Color(0xFF181524),
