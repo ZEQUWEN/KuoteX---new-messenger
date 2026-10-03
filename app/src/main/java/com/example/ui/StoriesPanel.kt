@@ -164,8 +164,8 @@ fun CompactStoryAvatarGroup(
 
     if (displayStories.isEmpty()) return
 
-    val avatarSize = 30.dp
-    val overlapOffset = 18.dp
+    val avatarSize = 26.dp
+    val overlapOffset = 14.dp
     val totalWidth = avatarSize + overlapOffset * (displayStories.size - 1).coerceAtLeast(0)
 
     Box(

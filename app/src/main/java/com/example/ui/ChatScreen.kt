@@ -644,7 +644,13 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                             }
                             
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(chat.title, modifier = titleModifier)
+                                Text(
+                                    chat.title,
+                                    modifier = titleModifier,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    softWrap = false
+                                )
                                 if (channelCustomization.emojiStatus != null) {
                                     Spacer(modifier = Modifier.width(6.dp))
                                     AnimatedEmojiStatusBadge(

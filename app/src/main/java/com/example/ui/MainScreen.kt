@@ -39,6 +39,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -453,7 +454,7 @@ fun MainAppNavigation(viewModel: AppViewModel = koinViewModel()) {
                                                         }
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.width((10 * compactAvatarScale).dp))
+                                                Spacer(modifier = Modifier.width((6 * compactAvatarScale).dp))
                                             }
 
                                             AnimatedContent(
@@ -467,34 +468,40 @@ fun MainAppNavigation(viewModel: AppViewModel = koinViewModel()) {
                                                     ConnectionStatus.OFFLINE -> {
                                                         Row(
                                                             verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                         ) {
                                                             CircularProgressIndicator(
-                                                                modifier = Modifier.size(16.dp),
+                                                                modifier = Modifier.size(14.dp),
                                                                 strokeWidth = 2.dp,
                                                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                                                             )
                                                             Text(
-                                                                text = if (totalQueuedCount > 0) "Ожидание сети ($totalQueuedCount в очереди)..." else "Ожидание сети...",
+                                                                text = if (totalQueuedCount > 0) "Ожидание сети ($totalQueuedCount)..." else "Ожидание сети...",
                                                                 fontWeight = FontWeight.SemiBold,
-                                                                style = MaterialTheme.typography.titleMedium
+                                                                style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                                                                maxLines = 1,
+                                                                softWrap = false,
+                                                                overflow = TextOverflow.Ellipsis
                                                             )
                                                         }
                                                     }
                                                     ConnectionStatus.CONNECTING -> {
                                                         Row(
                                                             verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                         ) {
                                                             CircularProgressIndicator(
-                                                                modifier = Modifier.size(16.dp),
+                                                                modifier = Modifier.size(14.dp),
                                                                 strokeWidth = 2.dp,
                                                                 color = MaterialTheme.colorScheme.primary
                                                             )
                                                             Text(
                                                                 text = if (totalQueuedCount > 0) "Синхронизация ($totalQueuedCount)..." else "Подключение...",
                                                                 fontWeight = FontWeight.SemiBold,
-                                                                style = MaterialTheme.typography.titleMedium
+                                                                style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                                                                maxLines = 1,
+                                                                softWrap = false,
+                                                                overflow = TextOverflow.Ellipsis
                                                             )
                                                         }
                                                     }
@@ -502,24 +509,30 @@ fun MainAppNavigation(viewModel: AppViewModel = koinViewModel()) {
                                                         if (isSyncingQueue && totalQueuedCount > 0) {
                                                             Row(
                                                                 verticalAlignment = Alignment.CenterVertically,
-                                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                             ) {
                                                                 CircularProgressIndicator(
-                                                                    modifier = Modifier.size(16.dp),
+                                                                    modifier = Modifier.size(14.dp),
                                                                     strokeWidth = 2.dp,
                                                                     color = MaterialTheme.colorScheme.primary
                                                                 )
                                                                 Text(
                                                                     text = "Отправка очереди ($totalQueuedCount)...",
                                                                     fontWeight = FontWeight.SemiBold,
-                                                                    style = MaterialTheme.typography.titleMedium
+                                                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                                                                    maxLines = 1,
+                                                                    softWrap = false,
+                                                                    overflow = TextOverflow.Ellipsis
                                                                 )
                                                             }
                                                         } else {
                                                             Text(
                                                                 text = "KuoteX",
                                                                 fontWeight = FontWeight.Bold,
-                                                                style = MaterialTheme.typography.titleLarge
+                                                                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                                                                maxLines = 1,
+                                                                softWrap = false,
+                                                                overflow = TextOverflow.Clip
                                                             )
                                                         }
                                                     }
@@ -1046,8 +1059,8 @@ fun ChatListScreen(
 
     val density = LocalDensity.current
     val storiesHeightDp = 104.dp
-    val searchBarHeightDp = 58.dp
-    val maxHeaderHeightDp = storiesHeightDp + searchBarHeightDp // 162.dp
+    val searchBarHeightDp = 66.dp
+    val maxHeaderHeightDp = storiesHeightDp + searchBarHeightDp // 170.dp
 
     val maxHeaderHeightPx = with(density) { maxHeaderHeightDp.toPx() }
     val storiesHeightPx = with(density) { storiesHeightDp.toPx() }
@@ -1361,7 +1374,7 @@ fun ChatListScreen(
                         scaleY = searchScale
                         transformOrigin = TransformOrigin(0.5f, 0.5f)
                     }
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
@@ -1369,17 +1382,19 @@ fun ChatListScreen(
                     onValueChange = { tabSearchQueries[safeTabIndex] = it },
                     placeholder = { 
                         Text(
-                            searchPlaceholder, 
+                            text = searchPlaceholder, 
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)
                         ) 
                     },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) },
                     trailingIcon = {
                         if (currentQuery.isNotEmpty()) {
-                            IconButton(onClick = { tabSearchQueries[safeTabIndex] = "" }) {
-                                Icon(Icons.Filled.Close, contentDescription = "Очистить поиск", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            IconButton(onClick = { tabSearchQueries[safeTabIndex] = "" }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Filled.Close, contentDescription = "Очистить поиск", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                             }
                         }
                     },
