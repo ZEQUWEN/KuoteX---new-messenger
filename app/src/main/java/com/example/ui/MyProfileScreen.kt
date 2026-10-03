@@ -991,6 +991,26 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
             }
         }
 
+        var showScannerFullScreen by remember { mutableStateOf(false) }
+
+        if (showScannerFullScreen) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showScannerFullScreen = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                com.example.ui.qr.QrCodeScannerView(
+                    viewModel = viewModel,
+                    modifier = Modifier.fillMaxSize(),
+                    onContactAdded = {
+                        showScannerFullScreen = false
+                    },
+                    onCloseScanner = {
+                        showScannerFullScreen = false
+                    }
+                )
+            }
+        }
+
         if (showQrDialog) {
             ModalBottomSheet(
                 onDismissRequest = { showQrDialog = false },
@@ -1077,35 +1097,17 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                         )
                     )
                 }
-                var showScanner by remember { mutableStateOf(false) }
+                val cleanUsername = activeAccount.username.removePrefix("@")
+                val displayUsername = "@$cleanUsername"
 
-                androidx.compose.animation.AnimatedContent(
-                    targetState = showScanner,
-                    label = "qr_scanner_transition"
-                ) { isScanner ->
-                    if (isScanner) {
-                        com.example.ui.qr.QrCodeScannerView(
-                            viewModel = viewModel,
-                            modifier = Modifier.fillMaxSize(),
-                            onContactAdded = {
-                                showScanner = false
-                            },
-                            onCloseScanner = {
-                                showScanner = false
-                            }
-                        )
-                    } else {
-                        val cleanUsername = activeAccount.username.removePrefix("@")
-                        val displayUsername = "@$cleanUsername"
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .navigationBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                             // QR Code Card (adaptive padding, fits gracefully on all screen heights)
                             Box(
                                 modifier = Modifier
@@ -1165,7 +1167,10 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             ) {
                                 Text("QR-код", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                 
-                                IconButton(onClick = { showScanner = true }) {
+                                IconButton(onClick = { 
+                                    showQrDialog = false
+                                    showScannerFullScreen = true 
+                                }) {
                                     Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan QR", tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
@@ -1249,8 +1254,6 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                         }
                     }
                 }
-            }
-        }
             }
         }
         

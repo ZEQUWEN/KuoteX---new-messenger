@@ -3,7 +3,6 @@ package com.example.ui.qr
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.VibrationEffect
@@ -19,20 +18,15 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,41 +44,41 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -93,8 +87,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
 import com.example.ui.AppViewModel
 import com.example.ui.Contact
+import com.example.ui.ScannedUserProfileResult
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -102,77 +98,12 @@ import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
-data class ScannedContactInfo(
-    val rawValue: String,
-    val displayName: String,
-    val username: String,
-    val phoneNumber: String?
-)
-
-fun parseQrCodeToContact(raw: String): ScannedContactInfo {
-    val trimmed = raw.trim()
-    return when {
-        trimmed.startsWith("https://t.me/") || trimmed.startsWith("http://t.me/") -> {
-            val username = trimmed.substringAfter("t.me/").substringBefore("/").substringBefore("?").removePrefix("@")
-            ScannedContactInfo(
-                rawValue = trimmed,
-                displayName = "@$username",
-                username = username,
-                phoneNumber = null
-            )
-        }
-        trimmed.startsWith("tg://resolve?domain=") -> {
-            val username = trimmed.substringAfter("domain=").substringBefore("&").removePrefix("@")
-            ScannedContactInfo(
-                rawValue = trimmed,
-                displayName = "@$username",
-                username = username,
-                phoneNumber = null
-            )
-        }
-        trimmed.startsWith("tel:") -> {
-            val phone = trimmed.removePrefix("tel:")
-            ScannedContactInfo(
-                rawValue = trimmed,
-                displayName = phone,
-                username = phone.replace("+", ""),
-                phoneNumber = phone
-            )
-        }
-        trimmed.startsWith("+") && trimmed.length in 7..16 -> {
-            ScannedContactInfo(
-                rawValue = trimmed,
-                displayName = trimmed,
-                username = trimmed.replace("+", ""),
-                phoneNumber = trimmed
-            )
-        }
-        trimmed.startsWith("@") -> {
-            val username = trimmed.removePrefix("@")
-            ScannedContactInfo(
-                rawValue = trimmed,
-                displayName = "@$username",
-                username = username,
-                phoneNumber = null
-            )
-        }
-        else -> {
-            val clean = trimmed.take(30)
-            ScannedContactInfo(
-                rawValue = trimmed,
-                displayName = if (clean.startsWith("@")) clean else "@${clean.removePrefix("@")}",
-                username = clean.removePrefix("@"),
-                phoneNumber = null
-            )
-        }
-    }
-}
-
 /**
- * QR Code Scanner View with CameraX, Real-Time ZXing Image Analysis,
- * Flashlight control, Gallery picker fallback, and instant Contact Addition.
+ * QR Code Scanner View with real-time CameraX, ZXing analysis,
+ * Room & Firestore database profile verification, and non-intrusive progress controls.
  */
 @Composable
 fun QrCodeScannerView(
@@ -182,6 +113,8 @@ fun QrCodeScannerView(
     onCloseScanner: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -197,10 +130,15 @@ fun QrCodeScannerView(
         }
     }
 
-    var scannedResult by remember { mutableStateOf<ScannedContactInfo?>(null) }
+    // Scanned User State verified against Room / Firestore database
+    var scannedUser by remember { mutableStateOf<ScannedUserProfileResult?>(null) }
+    var isSearchingUser by remember { mutableStateOf(false) }
+    var lookupFailed by remember { mutableStateOf(false) }
+    var lastScannedRaw by remember { mutableStateOf<String?>(null) }
+    var isAddedSuccessfully by remember { mutableStateOf(false) }
+
     var isTorchEnabled by remember { mutableStateOf(false) }
     var cameraControlRef by remember { mutableStateOf<Camera?>(null) }
-    var isAddedSuccessfully by remember { mutableStateOf(false) }
 
     // Haptic feedback trigger
     fun vibrateOnSuccess() {
@@ -214,6 +152,26 @@ fun QrCodeScannerView(
                 vibrator?.vibrate(100)
             }
         } catch (_: Exception) {}
+    }
+
+    // Verify user profile against Room & Firestore
+    fun processScannedQr(rawText: String) {
+        if (isSearchingUser || scannedUser != null || lookupFailed) return
+        isSearchingUser = true
+        lastScannedRaw = rawText
+        vibrateOnSuccess()
+
+        coroutineScope.launch {
+            val user = viewModel.findUserOrContactByQr(rawText)
+            isSearchingUser = false
+            if (user != null) {
+                scannedUser = user
+                lookupFailed = false
+            } else {
+                scannedUser = null
+                lookupFailed = true
+            }
+        }
     }
 
     // Gallery Picker contract to scan QR from screenshot
@@ -235,8 +193,7 @@ fun QrCodeScannerView(
                     }
                     val result = reader.decode(binaryBitmap)
                     if (result != null && result.text.isNotBlank()) {
-                        vibrateOnSuccess()
-                        scannedResult = parseQrCodeToContact(result.text)
+                        processScannedQr(result.text)
                     } else {
                         Toast.makeText(context, "QR-код на изображении не найден", Toast.LENGTH_SHORT).show()
                     }
@@ -250,7 +207,7 @@ fun QrCodeScannerView(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A))
+            .background(Color.Black)
     ) {
         if (!hasCameraPermission) {
             // Permission request UI
@@ -301,14 +258,11 @@ fun QrCodeScannerView(
                                 .build()
 
                             imageAnalysis.setAnalyzer(executor) { imageProxy ->
-                                if (scannedResult == null) {
+                                if (scannedUser == null && !isSearchingUser && !lookupFailed) {
                                     val decodedText = decodeQrFromImageProxy(imageProxy)
                                     if (!decodedText.isNullOrBlank()) {
                                         previewView.post {
-                                            if (scannedResult == null) {
-                                                vibrateOnSuccess()
-                                                scannedResult = parseQrCodeToContact(decodedText)
-                                            }
+                                            processScannedQr(decodedText)
                                         }
                                     }
                                 }
@@ -340,10 +294,10 @@ fun QrCodeScannerView(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Viewfinder Overlay (Dimmed background + Transparent center + Glowing corners & Laser)
+            // Safe Viewfinder Overlay (4 surrounding rectangles without destructive CLEAR mode)
             QrViewfinderOverlay(modifier = Modifier.fillMaxSize())
 
-            // Top Bar Controls (Torch & Gallery)
+            // Top Bar Controls (Torch, Title, Gallery)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -394,7 +348,7 @@ fun QrCodeScannerView(
                 }
             }
 
-            // Bottom Instructions
+            // Bottom Instructions / Status
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -402,17 +356,35 @@ fun QrCodeScannerView(
                     .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
-                Text(
-                    text = "Наведите камеру на QR-код профиля пользователя для быстрого добавления в контакты",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White,
-                    textAlign = TextAlign.Center
-                )
+                if (isSearchingUser) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = Color(0xFF38BDF8)
+                        )
+                        Text(
+                            text = "Поиск профиля в базе данных...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "Наведите камеру на QR-код профиля пользователя для быстрого добавления в контакты",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
 
-        // Contact Found Bottom Dialog
-        scannedResult?.let { contactInfo ->
+        // State 1: Verified User Found Card
+        scannedUser?.let { user ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -434,126 +406,169 @@ fun QrCodeScannerView(
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Success Badge
+                        // User Avatar / Badge
                         Box(
                             modifier = Modifier
                                 .size(64.dp)
-                                .background(
-                                    Brush.radialGradient(
-                                        listOf(Color(0xFF34D399).copy(alpha = 0.3f), Color.Transparent)
-                                    ),
-                                    CircleShape
-                                ),
+                                .clip(CircleShape)
+                                .background(Color(0xFF8B5CF6).copy(alpha = 0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .background(Color(0xFF10B981), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (isAddedSuccessfully) Icons.Filled.Check else Icons.Filled.PersonAdd,
+                            if (!user.avatarUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = user.avatarUrl,
                                     contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(26.dp)
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                )
+                            } else {
+                                Text(
+                                    text = user.displayName.take(1).uppercase(),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF38BDF8)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = if (isAddedSuccessfully) "Контакт добавлен!" else "Пользователь найден!",
+                            text = if (user.isSelf) "Ваш профиль" else if (isAddedSuccessfully) "Контакт добавлен!" else "Пользователь найден!",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
 
                         Text(
-                            text = contactInfo.displayName,
+                            text = user.displayName,
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF38BDF8)
+                            color = Color(0xFF38BDF8),
+                            textAlign = TextAlign.Center
                         )
 
-                        if (!contactInfo.phoneNumber.isNullOrBlank()) {
+                        Text(
+                            text = "@${user.username}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF94A3B8)
+                        )
+
+                        if (!user.phoneNumber.isNullOrBlank()) {
                             Text(
-                                text = contactInfo.phoneNumber,
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = user.phoneNumber,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = Color.LightGray
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(20.dp))
+                        if (user.bio.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = user.bio,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
 
-                        // Action Buttons
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // Action Buttons: Sleek Progress / Refresh Icon + Primary Button
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Rescan Button
-                            OutlinedButton(
+                            // Circular Rescan Button (Icon only — NO text wrapping / visual noise)
+                            FilledTonalIconButton(
                                 onClick = {
-                                    scannedResult = null
+                                    scannedUser = null
+                                    lookupFailed = false
+                                    isSearchingUser = false
                                     isAddedSuccessfully = false
                                 },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                                modifier = Modifier.size(48.dp),
+                                shape = CircleShape,
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = Color.White.copy(alpha = 0.12f),
+                                    contentColor = Color.White
+                                )
                             ) {
-                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Повтор", fontSize = 13.sp)
+                                if (isSearchingUser) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color(0xFF38BDF8)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Filled.Refresh,
+                                        contentDescription = "Сканировать снова",
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
                             }
 
-                            // Add to Contacts Button
-                            Button(
-                                onClick = {
-                                    viewModel.addContact(
-                                        name = contactInfo.displayName.removePrefix("@"),
-                                        phoneNumberOrUsername = contactInfo.phoneNumber ?: contactInfo.username
-                                    ) { newContact ->
-                                        isAddedSuccessfully = true
-                                        onContactAdded?.invoke(newContact)
-                                        Toast.makeText(context, "Контакт ${contactInfo.displayName} добавлен в телефонную книгу!", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier
-                                    .weight(1.5f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isAddedSuccessfully) Color(0xFF10B981) else Color(0xFF8B5CF6)
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = if (isAddedSuccessfully) Icons.Filled.Check else Icons.Filled.PersonAdd,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isAddedSuccessfully) "Добавлен ✓" else "В контакты",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            if (!user.isSelf) {
+                                Button(
+                                    onClick = {
+                                        viewModel.addContact(
+                                            name = user.displayName,
+                                            phoneNumberOrUsername = user.phoneNumber ?: "@${user.username}"
+                                        ) { newContact ->
+                                            isAddedSuccessfully = true
+                                            onContactAdded?.invoke(newContact)
+                                            Toast.makeText(context, "Контакт ${user.displayName} добавлен!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isAddedSuccessfully) Color(0xFF10B981) else Color(0xFF8B5CF6)
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = if (isAddedSuccessfully) Icons.Filled.Check else Icons.Filled.PersonAdd,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (isAddedSuccessfully) "Добавлен ✓" else if (user.isContact) "Уже в контактах" else "В контакты",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            } else {
+                                Button(
+                                    onClick = onCloseScanner,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6))
+                                ) {
+                                    Text("Готово", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Done / Close Button
+                        // Close Button
                         Button(
                             onClick = {
-                                scannedResult = null
-                                isAddedSuccessfully = false
+                                scannedUser = null
+                                lookupFailed = false
+                                isSearchingUser = false
                                 onCloseScanner()
                             },
                             modifier = Modifier
@@ -563,6 +578,109 @@ fun QrCodeScannerView(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2D2A40))
                         ) {
                             Text("Закрыть", color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // State 2: User Not Found Card (Filtered non-messenger QR codes)
+        if (lookupFailed && scannedUser == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.75f)),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1B2E)),
+                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(Color(0xFFEF4444).copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PersonOff,
+                                contentDescription = null,
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "Пользователь не найден",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = "Этот QR-код не принадлежит зарегистрированному пользователю в базе данных KuoteX.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF94A3B8),
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Circular Refresh Button
+                            FilledTonalIconButton(
+                                onClick = {
+                                    lookupFailed = false
+                                    isSearchingUser = false
+                                    scannedUser = null
+                                },
+                                modifier = Modifier.size(48.dp),
+                                shape = CircleShape,
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = Color.White.copy(alpha = 0.12f),
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = "Повторить",
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    lookupFailed = false
+                                    isSearchingUser = false
+                                    onCloseScanner()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2D2A40))
+                            ) {
+                                Text("Закрыть", color = Color.White, fontSize = 14.sp)
+                            }
                         }
                     }
                 }
@@ -637,7 +755,7 @@ private fun CameraPermissionRationaleCard(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Чтобы сканировать QR-коды профилей и мгновенно добавлять пользователей в контакты, разрешите приложению использовать камеру устройства.",
+                    text = "Чтобы сканировать QR-коды профилей и мгновенно находить пользователей в базе данных KuoteX, разрешите приложению использовать камеру устройства.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF94A3B8),
                     textAlign = TextAlign.Center,
@@ -679,8 +797,8 @@ private fun CameraPermissionRationaleCard(
 }
 
 /**
- * Animated Viewfinder Overlay with Darkened Cutout, Glowing Corner Brackets,
- * and Moving Laser Line.
+ * Animated Viewfinder Overlay with Darkened Surrounding Rectangles (without clearing buffer),
+ * Glowing Corner Brackets, and Moving Laser Line.
  */
 @Composable
 private fun QrViewfinderOverlay(modifier: Modifier = Modifier) {
@@ -705,26 +823,38 @@ private fun QrViewfinderOverlay(modifier: Modifier = Modifier) {
         val right = left + scanBoxSize
         val bottom = top + scanBoxSize
 
-        // Dim outer area
-        val overlayPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.argb(160, 0, 0, 0)
-        }
-        drawContext.canvas.nativeCanvas.drawRect(0f, 0f, canvasWidth, canvasHeight, overlayPaint)
+        val dimColor = Color.Black.copy(alpha = 0.65f)
 
-        // Clear scanning box
-        val clearPaint = android.graphics.Paint().apply {
-            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
-        }
-        drawContext.canvas.nativeCanvas.drawRoundRect(
-            left, top, right, bottom,
-            24.dp.toPx(), 24.dp.toPx(),
-            clearPaint
+        // 4 surrounding darkened rectangles (Center box is left completely transparent and camera is visible!)
+        // Top
+        drawRect(
+            color = dimColor,
+            topLeft = Offset(0f, 0f),
+            size = Size(canvasWidth, top)
+        )
+        // Bottom
+        drawRect(
+            color = dimColor,
+            topLeft = Offset(0f, bottom),
+            size = Size(canvasWidth, canvasHeight - bottom)
+        )
+        // Left
+        drawRect(
+            color = dimColor,
+            topLeft = Offset(0f, top),
+            size = Size(left, scanBoxSize)
+        )
+        // Right
+        drawRect(
+            color = dimColor,
+            topLeft = Offset(right, top),
+            size = Size(canvasWidth - right, scanBoxSize)
         )
 
         // Corner Brackets
         val cornerLength = 28.dp.toPx()
         val cornerStroke = 4.dp.toPx()
-        val cornerColor = androidx.compose.ui.graphics.Color(0xFF8B5CF6)
+        val cornerColor = Color(0xFF8B5CF6)
 
         // Top Left
         drawLine(cornerColor, Offset(left, top + cornerLength), Offset(left, top), cornerStroke)

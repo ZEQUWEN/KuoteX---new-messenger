@@ -70,6 +70,18 @@ data class Contact(
     val isRegistered: Boolean = true
 )
 
+data class ScannedUserProfileResult(
+    val id: String,
+    val username: String,
+    val displayName: String,
+    val avatarUrl: String? = null,
+    val bio: String = "",
+    val phoneNumber: String? = null,
+    val isBot: Boolean = false,
+    val isContact: Boolean = false,
+    val isSelf: Boolean = false
+)
+
 @Entity(    tableName = "messages",
     indices = [androidx.room.Index("chatId"), androidx.room.Index("senderId")]
 )
@@ -1144,6 +1156,115 @@ class AppViewModel(
             repository.insertContact(newContact)
             onComplete?.invoke(newContact)
         }
+    }
+
+    suspend fun findUserOrContactByQr(rawCode: String): ScannedUserProfileResult? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val trimmed = rawCode.trim()
+        if (trimmed.isBlank()) return@withContext null
+
+        val target = when {
+            trimmed.startsWith("tg://resolve?domain=") -> trimmed.substringAfter("domain=").substringBefore("&").removePrefix("@")
+            trimmed.startsWith("https://t.me/") || trimmed.startsWith("http://t.me/") -> trimmed.substringAfter("t.me/").substringBefore("/").substringBefore("?").removePrefix("@")
+            trimmed.startsWith("https://kuotex.me/") || trimmed.startsWith("http://kuotex.me/") -> trimmed.substringAfter("kuotex.me/").substringBefore("/").substringBefore("?").removePrefix("@")
+            trimmed.startsWith("kuotex://user/") -> trimmed.substringAfter("user/").substringBefore("/").substringBefore("?").removePrefix("@")
+            trimmed.startsWith("tel:") -> trimmed.removePrefix("tel:").trim()
+            trimmed.startsWith("@") -> trimmed.removePrefix("@").trim()
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> return@withContext null
+            else -> trimmed.trim()
+        }
+
+        if (target.isBlank() || target.contains("/") || target.contains(":") || target.contains("?")) {
+            return@withContext null
+        }
+
+        val cleanDigits = target.filter { it.isDigit() }
+        val myId = activeAccount.value?.id
+        val myUsername = activeAccount.value?.username?.removePrefix("@")
+
+        if (myUsername != null && target.equals(myUsername, ignoreCase = true)) {
+            val myAcc = activeAccount.value!!
+            return@withContext ScannedUserProfileResult(
+                id = myAcc.id,
+                username = myAcc.username.removePrefix("@"),
+                displayName = myAcc.displayName,
+                avatarUrl = myAcc.profilePicUrl,
+                bio = myAcc.bio,
+                phoneNumber = myAcc.phoneNumber.takeIf { it.isNotBlank() },
+                isBot = false,
+                isContact = false,
+                isSelf = true
+            )
+        }
+
+        // 1. Search Room accounts
+        val matchedAccount = try {
+            repository.searchAccountsSync(target).firstOrNull { acc ->
+                acc.username.removePrefix("@").equals(target, ignoreCase = true) ||
+                acc.displayName.equals(target, ignoreCase = true) ||
+                acc.id == target ||
+                (cleanDigits.length >= 7 && acc.phoneNumber.filter { it.isDigit() }.endsWith(cleanDigits.takeLast(7)))
+            }
+        } catch (_: Exception) {
+            null
+        }
+
+        if (matchedAccount != null) {
+            val isAlreadyContact = contacts.value.any { c ->
+                c.name.equals(matchedAccount.displayName, ignoreCase = true) ||
+                (matchedAccount.phoneNumber.isNotBlank() && c.phoneNumber == matchedAccount.phoneNumber)
+            }
+            return@withContext ScannedUserProfileResult(
+                id = matchedAccount.id,
+                username = matchedAccount.username.removePrefix("@"),
+                displayName = matchedAccount.displayName,
+                avatarUrl = matchedAccount.profilePicUrl,
+                bio = matchedAccount.bio,
+                phoneNumber = matchedAccount.phoneNumber.takeIf { it.isNotBlank() },
+                isBot = false,
+                isContact = isAlreadyContact,
+                isSelf = matchedAccount.id == myId
+            )
+        }
+
+        // 2. Search local contacts
+        val matchedContact = contacts.value.firstOrNull { c ->
+            c.name.equals(target, ignoreCase = true) ||
+            c.id == target ||
+            (c.phoneNumber != null && cleanDigits.length >= 7 && c.phoneNumber.filter { it.isDigit() }.endsWith(cleanDigits.takeLast(7)))
+        }
+
+        if (matchedContact != null) {
+            return@withContext ScannedUserProfileResult(
+                id = matchedContact.id,
+                username = target,
+                displayName = matchedContact.name,
+                avatarUrl = null,
+                bio = "",
+                phoneNumber = matchedContact.phoneNumber,
+                isBot = false,
+                isContact = true
+            )
+        }
+
+        // 3. Search bots
+        val bot = com.example.ui.botapi.BotRegistry.getAllBots().firstOrNull { b ->
+            b.id.equals(target, ignoreCase = true) ||
+            b.name.equals(target, ignoreCase = true)
+        }
+        if (bot != null) {
+            return@withContext ScannedUserProfileResult(
+                id = bot.id,
+                username = bot.id,
+                displayName = bot.name,
+                avatarUrl = null,
+                bio = bot.description,
+                phoneNumber = null,
+                isBot = true,
+                isContact = false
+            )
+        }
+
+        return@withContext null
     }
 
     fun addToContacts(chatId: String) {
