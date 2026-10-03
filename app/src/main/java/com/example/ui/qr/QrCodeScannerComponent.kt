@@ -265,18 +265,33 @@ fun QrCodeScannerView(
         } else {
             // Live Camera Preview
             val lifecycleOwner = LocalLifecycleOwner.current
+            val executor = remember { Executors.newSingleThreadExecutor() }
+            var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
+            DisposableEffect(lifecycleOwner) {
+                onDispose {
+                    try {
+                        cameraControlRef?.cameraControl?.enableTorch(false)
+                        cameraProviderRef?.unbindAll()
+                    } catch (_: Exception) {}
+                    try {
+                        executor.shutdown()
+                    } catch (_: Exception) {}
+                }
+            }
 
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx).apply {
                         scaleType = PreviewView.ScaleType.FILL_CENTER
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     }
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                    val executor = Executors.newSingleThreadExecutor()
 
                     cameraProviderFuture.addListener({
                         try {
                             val cameraProvider = cameraProviderFuture.get()
+                            cameraProviderRef = cameraProvider
                             val preview = Preview.Builder().build().also {
                                 it.setSurfaceProvider(previewView.surfaceProvider)
                             }
@@ -316,6 +331,11 @@ fun QrCodeScannerView(
                     }, ContextCompat.getMainExecutor(ctx))
 
                     previewView
+                },
+                onRelease = {
+                    try {
+                        cameraProviderRef?.unbindAll()
+                    } catch (_: Exception) {}
                 },
                 modifier = Modifier.fillMaxSize()
             )
