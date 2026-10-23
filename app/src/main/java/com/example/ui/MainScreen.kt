@@ -3384,6 +3384,8 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
 
     val groupedContacts = if (sortByName) sortedContacts.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' } else emptyMap()
 
+    var isSyncingContacts by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -3394,6 +3396,27 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        if (permissionState.status.isGranted) {
+                            isSyncingContacts = true
+                            viewModel.syncDeviceContactsFromPhone(context) { count ->
+                                isSyncingContacts = false
+                                if (count > 0) {
+                                    android.widget.Toast.makeText(context, "Синхронизировано $count контактов с устройства!", android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    android.widget.Toast.makeText(context, "Контакты устройства синхронизированы", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } else {
+                            permissionState.launchPermissionRequest()
+                        }
+                    }) {
+                        if (isSyncingContacts) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            Icon(Icons.Filled.Sync, contentDescription = "Синхронизировать контакты")
+                        }
+                    }
                     IconButton(onClick = { showQrScanner = true }) {
                         Icon(Icons.Filled.QrCodeScanner, contentDescription = "Сканировать QR-код")
                     }
@@ -3407,11 +3430,11 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddContactDialog = true },
-                containerColor = Color(0xFF3B82F6),
+                containerColor = Color(0xFFA855F7),
                 contentColor = Color.White,
                 shape = CircleShape
             ) {
-                Icon(Icons.Filled.PersonAdd, "Add Contact")
+                Icon(Icons.Filled.PersonAdd, "Новый контакт")
             }
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -3436,8 +3459,70 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
             Spacer(Modifier.height(8.dp))
             
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).padding(vertical = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .padding(vertical = 4.dp)
             ) {
+                // Telegram-style "Новый контакт" row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showAddContactDialog = true }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(0xFFA855F7)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Text("Новый контакт", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+
+                // Telegram-style "Синхронизировать с телефоном" row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            if (permissionState.status.isGranted) {
+                                isSyncingContacts = true
+                                viewModel.syncDeviceContactsFromPhone(context) { count ->
+                                    isSyncingContacts = false
+                                    if (count > 0) {
+                                        android.widget.Toast.makeText(context, "Синхронизировано $count контактов с устройства!", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Контакты устройства синхронизированы", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } else {
+                                permissionState.launchPermissionRequest()
+                            }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF0284C7)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSyncingContacts) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+                        } else {
+                            Icon(Icons.Filled.Sync, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        Text("Синхронизировать с телефоном", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Импорт контактов из телефонной книги", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3454,6 +3539,7 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
                     Spacer(Modifier.width(16.dp))
                     Text("Создать группу", style = MaterialTheme.typography.titleMedium)
                 }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3557,91 +3643,19 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
     }
 
     if (showAddContactDialog) {
-        var newContactName by remember { mutableStateOf("") }
-        var newContactPhoneOrUsername by remember { mutableStateOf("") }
-
-        AlertDialog(
+        androidx.compose.ui.window.Dialog(
             onDismissRequest = { showAddContactDialog = false },
-            containerColor = Color(0xFF1E1B2E),
-            title = {
-                Text("Новый контакт", color = Color.White, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Button(
-                        onClick = {
-                            showAddContactDialog = false
-                            showQrScanner = true
-                        },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6))
-                    ) {
-                        Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = Color.White)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Сканировать QR-код", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.15f))
-                        Text(" или вручную ", color = Color.Gray, fontSize = 12.sp)
-                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.15f))
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = newContactName,
-                        onValueChange = { newContactName = it },
-                        label = { Text("Имя контакта") },
-                        placeholder = { Text("Например: Иван Иванов") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = newContactPhoneOrUsername,
-                        onValueChange = { newContactPhoneOrUsername = it },
-                        label = { Text("Номер телефона или @юзернейм") },
-                        placeholder = { Text("+79991234567 или @username") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true
-                    )
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            com.example.ui.contacts.NewContactScreen(
+                viewModel = viewModel,
+                onDismiss = { showAddContactDialog = false },
+                onContactCreated = { contact ->
+                    showAddContactDialog = false
+                    navController.navigate("chat/${contact.id}")
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newContactName.isNotBlank() || newContactPhoneOrUsername.isNotBlank()) {
-                            viewModel.addContact(
-                                name = newContactName.ifBlank { newContactPhoneOrUsername },
-                                phoneNumberOrUsername = newContactPhoneOrUsername
-                            ) {
-                                android.widget.Toast.makeText(context, "Контакт добавлен!", android.widget.Toast.LENGTH_SHORT).show()
-                                showAddContactDialog = false
-                            }
-                        }
-                    },
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Сохранить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddContactDialog = false }) {
-                    Text("Отмена", color = Color.LightGray)
-                }
-            }
-        )
+            )
+        }
     }
 }
 

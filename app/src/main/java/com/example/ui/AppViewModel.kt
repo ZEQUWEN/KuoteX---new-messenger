@@ -1,4 +1,5 @@
 package com.example.ui
+import android.content.Context
 import kotlinx.coroutines.delay
 
 import com.example.auth.FirebaseAuthManager
@@ -1140,6 +1141,69 @@ class AppViewModel(
                 val isReg = contact.phoneNumber?.hashCode()?.rem(2) == 0
                 repository.insertContact(contact.copy(isRegistered = isReg))
             }
+        }
+    }
+
+    fun syncDeviceContactsFromPhone(context: Context, onComplete: ((Int) -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val deviceList = com.example.utils.CountryPhoneHelper.fetchDeviceContacts(context)
+            var addedCount = 0
+            val existing = contacts.value
+            deviceList.forEach { devContact ->
+                val cleanDigits = devContact.phoneNumber.filter { it.isDigit() }
+                val alreadyExists = existing.any { c ->
+                    (c.phoneNumber != null && c.phoneNumber.filter { it.isDigit() } == cleanDigits) ||
+                    c.name.equals(devContact.name, ignoreCase = true)
+                }
+                if (!alreadyExists && devContact.name.isNotBlank()) {
+                    val newContact = Contact(
+                        id = java.util.UUID.randomUUID().toString(),
+                        name = devContact.name,
+                        phoneNumber = devContact.phoneNumber,
+                        isRegistered = true
+                    )
+                    repository.insertContact(newContact)
+                    addedCount++
+                }
+            }
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                onComplete?.invoke(addedCount)
+            }
+        }
+    }
+
+    fun addContact(
+        firstName: String,
+        lastName: String = "",
+        phoneNumber: String,
+        notes: String = "",
+        syncWithDevice: Boolean = false,
+        context: Context? = null,
+        onComplete: ((Contact) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val contactId = java.util.UUID.randomUUID().toString()
+            val fullName = listOf(firstName.trim(), lastName.trim()).filter { it.isNotBlank() }.joinToString(" ").ifBlank { phoneNumber.trim() }
+            val cleanPhone = phoneNumber.trim()
+
+            if (syncWithDevice && context != null) {
+                com.example.utils.CountryPhoneHelper.saveContactToDevice(
+                    context = context,
+                    firstName = firstName,
+                    lastName = lastName,
+                    phoneNumber = cleanPhone,
+                    notes = notes
+                )
+            }
+
+            val newContact = Contact(
+                id = contactId,
+                name = fullName,
+                phoneNumber = cleanPhone,
+                isRegistered = true
+            )
+            repository.insertContact(newContact)
+            onComplete?.invoke(newContact)
         }
     }
 

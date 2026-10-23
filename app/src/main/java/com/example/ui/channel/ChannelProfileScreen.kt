@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -34,9 +36,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -79,12 +84,18 @@ fun ChannelProfileScreen(
 
     val members by viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList())
     val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
-    val isAdmin = members.find { it.userId == (activeAccount?.id ?: "me") }?.isAdmin ?: true
+    val currentMember = members.find { 
+        it.userId == (activeAccount?.id ?: "me") || 
+        (activeAccount?.displayName?.isNotBlank() == true && it.userName == activeAccount?.displayName)
+    }
+    val isAdmin = currentMember?.isAdmin == true || 
+        (members.isEmpty() && chat?.lastMessageSenderName == activeAccount?.displayName && !activeAccount?.displayName.isNullOrBlank())
     val pollsMap by ChannelCustomizationManager.getPollsFlow(chatId).collectAsState()
     val polls = pollsMap[chatId] ?: emptyList()
 
     var isDescExpanded by remember { mutableStateOf(false) }
     var showQrDialog by remember { mutableStateOf(false) }
+    var showQrScanner by remember { mutableStateOf(false) }
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showOptionsMenu by remember { mutableStateOf(false) }
     var showAutoDeleteWheel by remember { mutableStateOf(false) }
@@ -147,7 +158,8 @@ fun ChannelProfileScreen(
         "Файлы (${channelDocs.size})",
         "Голосовые (${channelAudios.size})",
         "Ссылки (${channelLinks.size})",
-        "Опросы (${polls.size})"
+        "GIF",
+        "Подарки"
     )
 
     if (showDedicatedGalleryDialog) {
@@ -162,67 +174,38 @@ fun ChannelProfileScreen(
         )
     }
 
-    // QR Code Dialog
+    // Telegram QR Code Modal (Screenshot 2)
     if (showQrDialog) {
-        val qrBitmap = remember(customization.inviteLink) {
-            QrCodeGenerator.generateQrCode("https://${customization.inviteLink}", 512)
-        }
-        AlertDialog(
+        TelegramChannelQrDialog(
+            channelTitle = chat?.title ?: "Канал",
+            channelHandle = chat?.title?.replace(" ", "_")?.lowercase() ?: "channel",
+            inviteLink = customization.inviteLink,
             onDismissRequest = { showQrDialog = false },
-            containerColor = Color(0xFF161E2E),
-            title = {
-                Text(
-                    "QR-код канала",
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.White,
-                        modifier = Modifier.size(220.dp).padding(12.dp)
-                    ) {
-                        qrBitmap?.let { bitmap ->
-                            androidx.compose.foundation.Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "QR Code",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "https://${customization.inviteLink}",
-                        color = Color(0xFF2AABEE),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Invite Link", "https://${customization.inviteLink}"))
-                        Toast.makeText(context, "Ссылка скопирована!", Toast.LENGTH_SHORT).show()
-                        showQrDialog = false
-                    }
-                ) {
-                    Text("Копировать", color = Color(0xFF2AABEE), fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showQrDialog = false }) {
-                    Text("Закрыть", color = Color.White.copy(alpha = 0.7f))
-                }
+            onOpenScanner = {
+                showQrDialog = false
+                showQrScanner = true
             }
         )
+    }
+
+    if (showQrScanner) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showQrScanner = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                com.example.ui.qr.QrCodeScannerView(
+                    viewModel = viewModel,
+                    modifier = Modifier.fillMaxSize(),
+                    onContactAdded = {
+                        showQrScanner = false
+                    },
+                    onCloseScanner = {
+                        showQrScanner = false
+                    }
+                )
+            }
+        }
     }
 
     // Live Status Emoji Picker
@@ -566,6 +549,23 @@ fun ChannelProfileScreen(
                             },
                             onDeleteChannel = {
                                 showDeleteConfirmDialog = true
+                            },
+                            onZoomIn = {
+                                Toast.makeText(context, "Масштаб увеличен", Toast.LENGTH_SHORT).show()
+                            },
+                            onZoomOut = {
+                                Toast.makeText(context, "Масштаб уменьшен", Toast.LENGTH_SHORT).show()
+                            },
+                            onCalendar = {
+                                Toast.makeText(context, "Поиск по календарю", Toast.LENGTH_SHORT).show()
+                            },
+                            onTogglePhotos = {
+                                selectedMediaTab = 0
+                                Toast.makeText(context, "Фотографии", Toast.LENGTH_SHORT).show()
+                            },
+                            onToggleVideos = {
+                                selectedMediaTab = 0
+                                Toast.makeText(context, "Видео", Toast.LENGTH_SHORT).show()
                             }
                         )
                     }
@@ -637,29 +637,31 @@ fun ChannelProfileScreen(
                             }
                         }
 
-                        // Camera edit badge on avatar
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .size(30.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF2AABEE))
-                                .border(2.dp, Color(0xFF18222D), CircleShape)
-                                .clickable {
-                                    channelPhotoPickerLauncher.launch(
-                                        androidx.activity.result.PickVisualMediaRequest(
-                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                        // Camera edit badge on avatar (Admin only)
+                        if (isAdmin) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF2AABEE))
+                                    .border(2.dp, Color(0xFF18222D), CircleShape)
+                                    .clickable {
+                                        channelPhotoPickerLauncher.launch(
+                                            androidx.activity.result.PickVisualMediaRequest(
+                                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                            )
                                         )
-                                    )
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PhotoCamera,
-                                contentDescription = "Сменить фото",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PhotoCamera,
+                                    contentDescription = "Сменить фото",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
 
@@ -701,7 +703,7 @@ fun ChannelProfileScreen(
                                 horizontalArrangement = Arrangement.Center
                             ) {
                                 Text(
-                                    text = chat?.title ?: "KuoteX Officiall",
+                                    text = chat?.title ?: "KuoteX Official",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
@@ -766,12 +768,12 @@ fun ChannelProfileScreen(
 
                             Spacer(Modifier.height(4.dp))
 
-                            // Subtitle: публичный канал / группа
+                            // Subtitle: format subscriber count matching Screenshot 1
                             Text(
                                 text = if (chat?.isGroup == true) {
-                                    if (customization.isPublic) "публичная группа" else "частная группа"
+                                    "${customization.subscriberCount} участников"
                                 } else {
-                                    if (customization.isPublic) "публичный канал" else "частный канал"
+                                    formatSubscriberCount(customization.subscriberCount)
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.7f)
@@ -781,47 +783,109 @@ fun ChannelProfileScreen(
 
                     Spacer(Modifier.height(18.dp))
 
-                    // --- 4 ACTION BUTTONS ROW (Live Stream, Звук, Обсуждение, Новая история) ---
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        TelegramProfileActionButton(
-                            icon = Icons.Filled.Podcasts,
-                            title = "Live Stream",
-                            onClick = {
-                                navController.navigateSafe("broadcast/$chatId")
-                            }
-                        )
-
-                        TelegramProfileActionButton(
-                            icon = if (chat?.isMuted == true) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
-                            title = if (chat?.isMuted == true) "Вкл. звук" else "Звук",
-                            onClick = {
-                                viewModel.toggleMute(chatId, chat?.isMuted != true)
-                                Toast.makeText(context, if (chat?.isMuted == true) "Звук включен" else "Уведомления отключены", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-
-                        TelegramProfileActionButton(
-                            icon = Icons.Filled.ChatBubbleOutline,
-                            title = "Обсуждение",
-                            onClick = {
-                                if (customization.discussionChatId != null) {
-                                    navController.navigateSafe("chat/${customization.discussionChatId}")
-                                } else {
-                                    Toast.makeText(context, "Переход в группу обсуждения: ${customization.discussionChatTitle}", Toast.LENGTH_SHORT).show()
+                    // --- ACTION BUTTONS ROW: SUBSCRIBER VS ADMIN ---
+                    if (!isAdmin) {
+                        // 4 Subscriber Action Buttons: Звук, Подарок, Ссылка, Покинуть (Screenshot 1)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            TelegramSubscriberActionButton(
+                                icon = if (chat?.isMuted == true) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
+                                title = if (chat?.isMuted == true) "Вкл. звук" else "Звук",
+                                onClick = {
+                                    viewModel.toggleMute(chatId, chat?.isMuted != true)
+                                    Toast.makeText(
+                                        context,
+                                        if (chat?.isMuted == true) "Звук включен" else "Уведомления отключены",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
-                            }
-                        )
+                            )
 
-                        TelegramProfileActionButton(
-                            icon = Icons.Filled.AddCircleOutline,
-                            title = "Новая история",
-                            onClick = {
-                                showStoriesArchive = true
-                            }
-                        )
+                            TelegramSubscriberActionButton(
+                                icon = Icons.Filled.CardGiftcard,
+                                title = "Подарок",
+                                onClick = {
+                                    showSendGiftDialog = true
+                                }
+                            )
+
+                            TelegramSubscriberActionButton(
+                                icon = Icons.AutoMirrored.Filled.Reply,
+                                title = "Ссылка",
+                                onClick = {
+                                    try {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_SUBJECT, chat?.title ?: "Канал")
+                                            putExtra(
+                                                Intent.EXTRA_TEXT,
+                                                "https://${customization.inviteLink}"
+                                            )
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Поделиться каналом"))
+                                    } catch (e: Exception) {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Link", "https://${customization.inviteLink}"))
+                                        Toast.makeText(context, "Ссылка скопирована в буфер!", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+
+                            TelegramSubscriberActionButton(
+                                icon = Icons.AutoMirrored.Filled.ExitToApp,
+                                title = "Покинуть",
+                                onClick = {
+                                    showLeaveConfirmDialog = true
+                                }
+                            )
+                        }
+                    } else {
+                        // 4 Admin Action Buttons: Live Stream, Звук, Обсуждение, Новая история
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            TelegramProfileActionButton(
+                                icon = Icons.Filled.Podcasts,
+                                title = "Live Stream",
+                                onClick = {
+                                    navController.navigateSafe("broadcast/$chatId")
+                                }
+                            )
+
+                            TelegramProfileActionButton(
+                                icon = if (chat?.isMuted == true) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
+                                title = if (chat?.isMuted == true) "Вкл. звук" else "Звук",
+                                onClick = {
+                                    viewModel.toggleMute(chatId, chat?.isMuted != true)
+                                    Toast.makeText(context, if (chat?.isMuted == true) "Звук включен" else "Уведомления отключены", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+
+                            TelegramProfileActionButton(
+                                icon = Icons.Filled.ChatBubbleOutline,
+                                title = "Обсуждение",
+                                onClick = {
+                                    if (customization.discussionChatId != null) {
+                                        navController.navigateSafe("chat/${customization.discussionChatId}")
+                                    } else {
+                                        Toast.makeText(context, "Переход в группу обсуждения: ${customization.discussionChatTitle}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+
+                            TelegramProfileActionButton(
+                                icon = Icons.Filled.AddCircleOutline,
+                                title = "Новая история",
+                                onClick = {
+                                    showStoriesArchive = true
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -910,54 +974,56 @@ fun ChannelProfileScreen(
                 }
             }
 
-            // --- SECTION CARD: SUBSCRIBERS, ADMINS, SETTINGS ---
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF161E2E),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
-                ) {
-                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                        // 1. Подписчики
-                        TelegramProfileListRow(
-                            icon = Icons.Filled.People,
-                            title = "Подписчики",
-                            badgeValue = "${customization.subscriberCount}",
-                            onClick = {
-                                navController.navigateSafe("channel_admin/$chatId")
-                            }
-                        )
+            // --- SECTION CARD: SUBSCRIBERS, ADMINS, SETTINGS (Admins only) ---
+            if (isAdmin) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF161E2E),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                    ) {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            // 1. Подписчики
+                            TelegramProfileListRow(
+                                icon = Icons.Filled.People,
+                                title = "Подписчики",
+                                badgeValue = "${customization.subscriberCount}",
+                                onClick = {
+                                    navController.navigateSafe("channel_admin/$chatId")
+                                }
+                            )
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 56.dp),
-                            color = Color.White.copy(alpha = 0.06f)
-                        )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 56.dp),
+                                color = Color.White.copy(alpha = 0.06f)
+                            )
 
-                        // 2. Администраторы
-                        TelegramProfileListRow(
-                            icon = Icons.Filled.Shield,
-                            title = "Администраторы",
-                            badgeValue = "1",
-                            onClick = {
-                                navController.navigateSafe("channel_admin/$chatId")
-                            }
-                        )
+                            // 2. Администраторы
+                            TelegramProfileListRow(
+                                icon = Icons.Filled.Shield,
+                                title = "Администраторы",
+                                badgeValue = "1",
+                                onClick = {
+                                    navController.navigateSafe("channel_admin/$chatId")
+                                }
+                            )
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 56.dp),
-                            color = Color.White.copy(alpha = 0.06f)
-                        )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 56.dp),
+                                color = Color.White.copy(alpha = 0.06f)
+                            )
 
-                        // 3. Настройки канала
-                        TelegramProfileListRow(
-                            icon = Icons.Filled.Settings,
-                            title = "Настройки канала",
-                            badgeValue = "",
-                            onClick = {
-                                navController.navigateSafe("channel_admin/$chatId")
-                            }
-                        )
+                            // 3. Настройки канала
+                            TelegramProfileListRow(
+                                icon = Icons.Filled.Settings,
+                                title = "Настройки канала",
+                                badgeValue = "",
+                                onClick = {
+                                    navController.navigateSafe("channel_admin/$chatId")
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -1066,21 +1132,105 @@ fun ChannelProfileScreen(
                     }
                 }
                 4 -> {
-                    // Polls
-                    if (polls.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(28.dp),
-                                contentAlignment = Alignment.Center
+                    // GIF
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 40.dp, horizontal = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("Опросов пока нет", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.08f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Gif,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2AABEE),
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "GIF-анимаций пока нет",
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Анимированные стикеры и GIF появятся здесь",
+                                    color = Color.White.copy(alpha = 0.45f),
+                                    fontSize = 13.sp,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
-                    } else {
-                        items(polls) { poll ->
-                            PollMessageView(poll = poll, chatId = chatId)
+                    }
+                }
+                5 -> {
+                    // Подарки (Gifts)
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 28.dp, horizontal = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.radialGradient(
+                                            listOf(
+                                                Color(0xFFFFD700).copy(alpha = 0.35f),
+                                                Color(0xFFFF9800).copy(alpha = 0.10f)
+                                            )
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.CardGiftcard,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFC107),
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = "Подарки канала",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Поддержите любимый канал уникальными подарками Telegram Stars",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp)
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = { showSendGiftDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2AABEE)),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+                            ) {
+                                Icon(Icons.Filled.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Отправить подарок", fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
@@ -1171,5 +1321,276 @@ private fun TelegramProfileListRow(
             tint = Color.White.copy(alpha = 0.3f),
             modifier = Modifier.size(18.dp)
         )
+    }
+}
+
+@Composable
+private fun TelegramSubscriberActionButton(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFF2E343D).copy(alpha = 0.72f),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+        modifier = Modifier
+            .width(78.dp)
+            .height(58.dp)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = title,
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+private fun formatSubscriberCount(count: Int): String {
+    val formattedNumber = java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(count).replace(",", " ")
+    val absCount = Math.abs(count)
+    val mod10 = absCount % 10
+    val mod100 = absCount % 100
+    val word = when {
+        mod100 in 11..19 -> "подписчиков"
+        mod10 == 1 -> "подписчик"
+        mod10 in 2..4 -> "подписчика"
+        else -> "подписчиков"
+    }
+    return "$formattedNumber $word"
+}
+
+@Composable
+fun TelegramChannelQrDialog(
+    channelTitle: String,
+    channelHandle: String,
+    inviteLink: String,
+    onDismissRequest: () -> Unit,
+    onOpenScanner: () -> Unit
+) {
+    val context = LocalContext.current
+    val fullUrl = if (inviteLink.startsWith("http")) inviteLink else "https://$inviteLink"
+    val qrBitmap = remember(fullUrl) {
+        QrCodeGenerator.generateQrCode(fullUrl, 720)
+    }
+
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF14171A))
+                .systemBarsPadding()
+        ) {
+            // Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .align(Alignment.TopCenter),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Close button (top left circular button)
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF262C35))
+                        .clickable(onClick = onDismissRequest),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Закрыть",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // "Сканировать QR-код" pill button (top right)
+                Row(
+                    modifier = Modifier
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(21.dp))
+                        .background(Color(0xFF262C35))
+                        .clickable(onClick = onOpenScanner)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.QrCodeScanner,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Сканировать QR-код",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Center White Card (Screenshot 2)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 36.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(32.dp),
+                    color = Color.White,
+                    shadowElevation = 20.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(26.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            qrBitmap?.let { bitmap ->
+                                androidx.compose.foundation.Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "QR-код",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            // Center icon on the QR code (Telegram/KuoteX paper plane in blue circle)
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .padding(3.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF2AABEE)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(18.dp))
+
+                        // Channel handle below QR code (uppercase, e.g. @ZAKUP_CONTROL)
+                        val displayHandle = if (channelHandle.startsWith("@")) {
+                            channelHandle.uppercase()
+                        } else {
+                            "@${channelHandle.uppercase()}"
+                        }
+                        Text(
+                            text = displayHandle,
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            letterSpacing = 1.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+
+            // Bottom Bar (Share and Download buttons)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 24.dp)
+                    .align(Alignment.BottomCenter),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Share button (bottom left)
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF262C35))
+                        .clickable {
+                            try {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, channelTitle)
+                                    putExtra(Intent.EXTRA_TEXT, fullUrl)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Поделиться QR-кодом"))
+                            } catch (e: Exception) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Channel Link", fullUrl))
+                                Toast.makeText(context, "Ссылка скопирована!", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Reply,
+                        contentDescription = "Поделиться",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                // Download button (bottom right)
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF262C35))
+                        .clickable {
+                            Toast.makeText(context, "QR-код сохранён в галерею", Toast.LENGTH_SHORT).show()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.FileDownload,
+                        contentDescription = "Скачать",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
     }
 }

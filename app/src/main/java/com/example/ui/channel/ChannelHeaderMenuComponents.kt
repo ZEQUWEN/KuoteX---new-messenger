@@ -412,7 +412,12 @@ fun ChannelProfileDropdownMenu(
     onViewDiscussion: () -> Unit,
     onCreateShortcut: () -> Unit,
     onLeaveChannel: () -> Unit,
-    onDeleteChannel: () -> Unit
+    onDeleteChannel: () -> Unit,
+    onZoomIn: () -> Unit = {},
+    onZoomOut: () -> Unit = {},
+    onCalendar: () -> Unit = {},
+    onTogglePhotos: () -> Unit = {},
+    onToggleVideos: () -> Unit = {}
 ) {
     var currentPage by remember { mutableStateOf(ChannelMenuPage.MAIN) }
 
@@ -454,100 +459,174 @@ fun ChannelProfileDropdownMenu(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                     ) {
-                        // 1. Автоудаление (Submenu)
-                        TelegramMenuRow(
-                            icon = Icons.Outlined.AccessTime,
-                            title = "Автоудаление",
-                            hasSubmenu = true,
-                            onClick = {
-                                currentPage = ChannelMenuPage.AUTO_DELETE
-                            }
-                        )
+                        if (!isAdmin) {
+                            // Subscriber Menu (Screenshot 1)
+                            // 1. Увеличить
+                            TelegramMenuRow(
+                                icon = Icons.Filled.ZoomIn,
+                                title = "Увеличить",
+                                onClick = {
+                                    onDismissRequest()
+                                    onZoomIn()
+                                }
+                            )
 
-                        // 2. Начать трансляцию
-                        TelegramMenuRow(
-                            icon = Icons.Outlined.LiveTv,
-                            title = "Начать трансляцию",
-                            onClick = {
-                                onDismissRequest()
-                                onStartLiveStream()
-                            }
-                        )
+                            // 2. Уменьшить
+                            TelegramMenuRow(
+                                icon = Icons.Filled.ZoomOut,
+                                title = "Уменьшить",
+                                onClick = {
+                                    onDismissRequest()
+                                    onZoomOut()
+                                }
+                            )
 
-                        // 3. Статистика
-                        TelegramMenuRow(
-                            icon = Icons.Outlined.TrendingUp,
-                            title = "Статистика",
-                            onClick = {
-                                onDismissRequest()
-                                onOpenStats()
-                            }
-                        )
+                            // 3. Календарь
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.CalendarMonth,
+                                title = "Календарь",
+                                onClick = {
+                                    onDismissRequest()
+                                    onCalendar()
+                                }
+                            )
 
-                        // 4. Архив историй
-                        TelegramMenuRow(
-                            icon = Icons.Outlined.Archive,
-                            title = "Архив историй",
-                            onClick = {
-                                onDismissRequest()
-                                onOpenStoriesArchive()
-                            }
-                        )
+                            // 4. Фотографии
+                            TelegramMenuRow(
+                                icon = Icons.Filled.Check,
+                                title = "Фотографии",
+                                onClick = {
+                                    onDismissRequest()
+                                    onTogglePhotos()
+                                }
+                            )
 
-                        // 5. Поделиться
-                        TelegramMenuRow(
-                            icon = Icons.Outlined.Share,
-                            title = "Поделиться",
-                            onClick = {
-                                onDismissRequest()
-                                onShare()
-                            }
-                        )
+                            // 5. Видео
+                            TelegramMenuRow(
+                                icon = Icons.Filled.Check,
+                                title = "Видео",
+                                onClick = {
+                                    onDismissRequest()
+                                    onToggleVideos()
+                                }
+                            )
 
-                        // 6. Отправить подарок
-                        TelegramMenuRow(
-                            icon = Icons.Outlined.CardGiftcard,
-                            title = "Отправить подарок",
-                            onClick = {
-                                onDismissRequest()
-                                onSendGift()
-                            }
-                        )
+                            // 6. Поделиться
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.Share,
+                                title = "Поделиться",
+                                onClick = {
+                                    onDismissRequest()
+                                    onShare()
+                                }
+                            )
 
-                        // 7. Просмотреть обсуждение
-                        TelegramMenuRow(
-                            icon = Icons.Outlined.ChatBubbleOutline,
-                            title = "Просмотреть обсуждение",
-                            onClick = {
-                                onDismissRequest()
-                                onViewDiscussion()
-                            }
-                        )
+                            // 7. Покинуть канал
+                            TelegramMenuRow(
+                                icon = Icons.AutoMirrored.Filled.ExitToApp,
+                                title = if (isChannel) "Покинуть канал" else "Покинуть группу",
+                                textColor = Color(0xFFFF5252),
+                                iconTint = Color(0xFFFF5252),
+                                onClick = {
+                                    onDismissRequest()
+                                    onLeaveChannel()
+                                }
+                            )
+                        } else {
+                            // Admin / Creator Menu
+                            // 1. Автоудаление (Submenu)
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.AccessTime,
+                                title = "Автоудаление",
+                                hasSubmenu = true,
+                                onClick = {
+                                    currentPage = ChannelMenuPage.AUTO_DELETE
+                                }
+                            )
 
-                        // 8. Создать ярлык
-                        TelegramMenuRow(
-                            icon = Icons.Outlined.AddBox,
-                            title = "Создать ярлык",
-                            onClick = {
-                                onDismissRequest()
-                                onCreateShortcut()
-                            }
-                        )
+                            // 2. Начать трансляцию
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.LiveTv,
+                                title = "Начать трансляцию",
+                                onClick = {
+                                    onDismissRequest()
+                                    onStartLiveStream()
+                                }
+                            )
 
-                        // 9. Покинуть канал
-                        TelegramMenuRow(
-                            icon = Icons.AutoMirrored.Filled.ExitToApp,
-                            title = if (isChannel) "Покинуть канал" else "Покинуть группу",
-                            textColor = Color(0xFFFF5252),
-                            iconTint = Color(0xFFFF5252),
-                            onClick = {
-                                onDismissRequest()
-                                onLeaveChannel()
-                            }
-                        )
+                            // 3. Статистика
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.TrendingUp,
+                                title = "Статистика",
+                                onClick = {
+                                    onDismissRequest()
+                                    onOpenStats()
+                                }
+                            )
 
-                        // 10. Удалить канал
-                        if (isAdmin) {
+                            // 4. Архив историй
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.Archive,
+                                title = "Архив историй",
+                                onClick = {
+                                    onDismissRequest()
+                                    onOpenStoriesArchive()
+                                }
+                            )
+
+                            // 5. Поделиться
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.Share,
+                                title = "Поделиться",
+                                onClick = {
+                                    onDismissRequest()
+                                    onShare()
+                                }
+                            )
+
+                            // 6. Отправить подарок
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.CardGiftcard,
+                                title = "Отправить подарок",
+                                onClick = {
+                                    onDismissRequest()
+                                    onSendGift()
+                                }
+                            )
+
+                            // 7. Просмотреть обсуждение
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.ChatBubbleOutline,
+                                title = "Просмотреть обсуждение",
+                                onClick = {
+                                    onDismissRequest()
+                                    onViewDiscussion()
+                                }
+                            )
+
+                            // 8. Создать ярлык
+                            TelegramMenuRow(
+                                icon = Icons.Outlined.AddBox,
+                                title = "Создать ярлык",
+                                onClick = {
+                                    onDismissRequest()
+                                    onCreateShortcut()
+                                }
+                            )
+
+                            // 9. Покинуть канал
+                            TelegramMenuRow(
+                                icon = Icons.AutoMirrored.Filled.ExitToApp,
+                                title = if (isChannel) "Покинуть канал" else "Покинуть группу",
+                                textColor = Color(0xFFFF5252),
+                                iconTint = Color(0xFFFF5252),
+                                onClick = {
+                                    onDismissRequest()
+                                    onLeaveChannel()
+                                }
+                            )
+
+                            // 10. Удалить канал
                             TelegramMenuRow(
                                 icon = Icons.Outlined.Delete,
                                 title = if (isChannel) "Удалить канал" else "Удалить группу",
