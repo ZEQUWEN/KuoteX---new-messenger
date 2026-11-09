@@ -99,6 +99,9 @@ interface ChatDao {
     @Query("UPDATE chats SET isMuted = :isMuted WHERE id = :chatId")
     suspend fun updateMuteStatus(chatId: String, isMuted: Boolean)
 
+    @Query("UPDATE chats SET isPinned = :isPinned, pinnedTimestamp = :pinnedTimestamp WHERE id = :chatId")
+    suspend fun updateChatPinStatus(chatId: String, isPinned: Boolean, pinnedTimestamp: Long)
+
     @Query("UPDATE chats SET isContact = :isContact WHERE id = :chatId")
     suspend fun updateContactStatus(chatId: String, isContact: Boolean)
 
@@ -296,7 +299,7 @@ interface QueuedMessageDao {
 }
 
 @androidx.room.TypeConverters(BotConverters::class)
-@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class], version = 23, exportSchema = false)
+@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class], version = 24, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun botDao(): BotDao
     abstract fun userDao(): UserDao
@@ -473,6 +476,7 @@ class MessengerRepository(
     suspend fun updateBlockedStatus(chatId: String, isBlocked: Boolean) = chatDao.updateBlockedStatus(chatId, isBlocked)
     suspend fun updateArchiveStatus(chatId: String, isArchived: Boolean) = chatDao.updateArchiveStatus(chatId, isArchived)
     suspend fun updateMuteStatus(chatId: String, isMuted: Boolean) = chatDao.updateMuteStatus(chatId, isMuted)
+    suspend fun updateChatPinStatus(chatId: String, isPinned: Boolean, pinnedTimestamp: Long) = chatDao.updateChatPinStatus(chatId, isPinned, pinnedTimestamp)
     suspend fun updateContactStatus(chatId: String, isContact: Boolean) = chatDao.updateContactStatus(chatId, isContact)
     suspend fun updateActionMenuDismissed(chatId: String, isDismissed: Boolean) = chatDao.updateActionMenuDismissed(chatId, isDismissed)
     suspend fun insertMessage(message: Message) = messageDao.insertMessage(message.copy(text = CryptoManager.encrypt(message.text), audioPath = message.audioPath?.let { CryptoManager.encrypt(it) }, mediaPath = message.mediaPath?.let { CryptoManager.encrypt(it) }, documentData = message.documentData?.let { CryptoManager.encrypt(it) }))

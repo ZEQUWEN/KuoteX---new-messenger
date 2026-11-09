@@ -1,6 +1,6 @@
 {
-  "summary":  "План доработки отображения каналов в мессенджере KuoteX с разделением интерфейса для подписчиков и администраторов в точном соответствии с дизайном Telegram: карточки описания, ссылки, QR-код, 4 кнопки действий и нижняя панель материалов с разделами (Медиа, Файлы, Голосовые, Ссылки, GIF, Подарки).",
-  "updatedAt":  "2026-10-23T20:05:58.413199860Z",
+  "summary":  "Implementation plan for pinning important chats to the top of the conversation list with visual indicator icon and Telegram-style gestures. All tasks are completed.",
+  "updatedAt":  "2026-11-09T13:46:54.275794781Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

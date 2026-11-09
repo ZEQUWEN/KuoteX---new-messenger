@@ -7,6 +7,8 @@ import com.example.ui.botapi.BotRegistry
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -222,6 +224,19 @@ fun MainAppNavigation(viewModel: AppViewModel = koinViewModel()) {
                 if (availableBytes < 500L * 1024 * 1024 || totalAppSize > 1024L * 1024 * 1024) { 
                     storageAlertMessage = "Storage Warning: Device has ${availableBytes / (1024 * 1024)} MB free. App encrypted database and cache are currently using ${totalAppSize / (1024 * 1024)} MB. Please free up space."
                     showStorageAlert = true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // Automatic background contact synchronization on backend/local DB
+            try {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.READ_CONTACTS
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    viewModel.syncDeviceContactsFromPhone(context)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1052,6 +1067,7 @@ fun ChatListScreen(
     var activeMenuTab by remember { mutableStateOf<ChatTabItem?>(null) }
     var pressingTabIndex by remember { mutableStateOf<Int?>(null) }
     var pressHoldProgress by remember { mutableFloatStateOf(0f) }
+    var selectedChatForAction by remember { mutableStateOf<Chat?>(null) }
 
     val safeTabIndex = pagerState.currentPage.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
     val currentTab = tabs.getOrElse(safeTabIndex) { ChatTabItem.All }
@@ -1631,7 +1647,10 @@ fun ChatListScreen(
                         is ChatTabItem.Bots -> chat.isBot
                         is ChatTabItem.Custom -> pageTab.folder.matches(chat)
                     }
-                }
+                }.sortedWith(
+                    compareByDescending<Chat> { it.isPinned }
+                        .thenByDescending { if (it.isPinned) it.pinnedTimestamp.takeIf { t -> t > 0L } ?: it.lastMessageTimestamp else it.lastMessageTimestamp }
+                )
             }
 
             val pageDbSearchResults by remember(pageQuery, pageTab) {
@@ -1774,6 +1793,10 @@ fun ChatListScreen(
                                 focusManager.clearFocus()
                                 keyboardController?.hide()
                                 navController.navigate("profile/${chat.id}") 
+                            },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                selectedChatForAction = chat
                             }
                         )
                     }
@@ -2224,6 +2247,35 @@ fun ChatListScreen(
                 }
             )
         }
+
+        // Long-Press Chat Action Bottom Sheet (Pin, Mute, Archive, Delete)
+        selectedChatForAction?.let { targetChat ->
+            ChatActionBottomSheet(
+                chat = targetChat,
+                onDismiss = { selectedChatForAction = null },
+                onTogglePin = {
+                    viewModel.togglePinChat(targetChat.id) {
+                        Toast.makeText(context, "Закреплено максимум 5 чатов. Открепите один, чтобы закрепить новый.", Toast.LENGTH_LONG).show()
+                    }
+                    selectedChatForAction = null
+                },
+                onToggleMute = {
+                    viewModel.toggleMute(targetChat.id, !targetChat.isMuted)
+                    Toast.makeText(context, if (targetChat.isMuted) "Звук включен" else "Уведомления отключены", Toast.LENGTH_SHORT).show()
+                    selectedChatForAction = null
+                },
+                onToggleArchive = {
+                    viewModel.toggleArchive(targetChat.id, !targetChat.isArchived)
+                    Toast.makeText(context, if (targetChat.isArchived) "Чат возвращен из архива" else "Чат перенесен в архив", Toast.LENGTH_SHORT).show()
+                    selectedChatForAction = null
+                },
+                onDelete = {
+                    viewModel.deleteChat(targetChat.id)
+                    Toast.makeText(context, "Чат удален", Toast.LENGTH_SHORT).show()
+                    selectedChatForAction = null
+                }
+            )
+        }
     }
 }
 
@@ -2237,15 +2289,26 @@ fun SwipeableChatListItem(
     presence: com.example.ui.UserPresence? = null, 
     folderTags: List<FolderTagInfo> = emptyList(),
     onClick: () -> Unit, 
-    onAvatarClick: () -> Unit = {}
+    onAvatarClick: () -> Unit = {},
+    onLongClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
-            if (dismissValue == SwipeToDismissBoxValue.EndToStart || dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                viewModel.toggleArchive(chat.id, !chat.isArchived)
-                true
-            } else {
-                false
+            when (dismissValue) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    // Left-to-right swipe: Toggle Pin/Unpin
+                    viewModel.togglePinChat(chat.id) {
+                        Toast.makeText(context, "Закреплено максимум 5 чатов. Открепите один, чтобы закрепить новый.", Toast.LENGTH_LONG).show()
+                    }
+                    false // Return false so item smoothly snaps back after action
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    // Right-to-left swipe: Toggle Archive
+                    viewModel.toggleArchive(chat.id, !chat.isArchived)
+                    true
+                }
+                else -> false
             }
         }
     )
@@ -2253,21 +2316,43 @@ fun SwipeableChatListItem(
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
-            val color = when (dismissState.targetValue) {
-                SwipeToDismissBoxValue.Settled -> Color.Transparent
-                else -> if (chat.isArchived) Color(0xFF4CAF50) else Color(0xFFF44336)
+            val direction = dismissState.dismissDirection
+            val color = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> if (chat.isPinned) Color(0xFFE5A00D) else Color(0xFF2AABEE)
+                SwipeToDismissBoxValue.EndToStart -> if (chat.isArchived) Color(0xFF4CAF50) else Color(0xFFF44336)
+                else -> Color.Transparent
             }
-            val icon = if (chat.isArchived) Icons.Filled.Unarchive else Icons.Filled.Archive
+            val icon = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> if (chat.isPinned) Icons.Filled.PushPin else Icons.Filled.PushPin
+                SwipeToDismissBoxValue.EndToStart -> if (chat.isArchived) Icons.Filled.Unarchive else Icons.Filled.Archive
+                else -> Icons.Filled.Archive
+            }
+            val label = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> if (chat.isPinned) "Открепить" else "Закрепить"
+                SwipeToDismissBoxValue.EndToStart -> if (chat.isArchived) "Вернуть" else "В архив"
+                else -> ""
+            }
             
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .clip(RoundedCornerShape(12.dp))
                     .background(color)
                     .padding(horizontal = 20.dp),
-                contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+                contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
             ) {
                 if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) {
-                    Icon(icon, contentDescription = "Archive", tint = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                            Icon(icon, contentDescription = label, tint = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                            Text(label, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        } else {
+                            Text(label, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Icon(icon, contentDescription = label, tint = Color.White)
+                        }
+                    }
                 }
             }
         },
@@ -2279,12 +2364,14 @@ fun SwipeableChatListItem(
                 presence = presence,
                 folderTags = folderTags,
                 onClick = onClick, 
-                onAvatarClick = onAvatarClick
+                onAvatarClick = onAvatarClick,
+                onLongClick = onLongClick
             )
         }
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatListItem(
     chat: Chat, 
@@ -2293,7 +2380,8 @@ fun ChatListItem(
     presence: com.example.ui.UserPresence? = null,
     folderTags: List<FolderTagInfo> = emptyList(),
     onClick: () -> Unit, 
-    onAvatarClick: () -> Unit = {}
+    onAvatarClick: () -> Unit = {},
+    onLongClick: () -> Unit = {}
 ) {
     val chatTypeLabel = when {
         chat.isSecret -> "Секретный чат"
@@ -2325,8 +2413,10 @@ fun ChatListItem(
     }
 
     val unreadLabel = if (chat.unreadCount > 0) "${chat.unreadCount} непрочитанных сообщений" else null
+    val pinnedLabel = if (chat.isPinned) "Закрепленный чат" else null
 
     val chatItemAccessibilityDescription = listOfNotNull(
+        pinnedLabel,
         chatTypeLabel,
         chat.title,
         presenceLabel,
@@ -2334,18 +2424,36 @@ fun ChatListItem(
         unreadLabel
     ).joinToString(", ")
 
-    Row(
-        modifier = Modifier
+    // Highlighted card container for pinned chats
+    val rowModifier = if (chat.isPinned) {
+        Modifier
             .fillMaxWidth()
-            .clickable(
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        Color(0xFF2AABEE).copy(alpha = 0.10f),
+                        Color(0xFF2AABEE).copy(alpha = 0.04f)
+                    )
+                )
+            )
+            .border(1.dp, Color(0xFF2AABEE).copy(alpha = 0.22f), RoundedCornerShape(14.dp))
+    } else {
+        Modifier.fillMaxWidth()
+    }
+
+    Row(
+        modifier = rowModifier
+            .combinedClickable(
                 onClick = onClick,
+                onLongClick = onLongClick,
                 onClickLabel = "Открыть чат ${chat.title}"
             )
             .semantics(mergeDescendants = true) {
                 contentDescription = chatItemAccessibilityDescription
                 role = Role.Button
             }
-            .padding(vertical = 12.dp, horizontal = 8.dp),
+            .padding(vertical = 10.dp, horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Avatar
@@ -2355,10 +2463,10 @@ fun ChatListItem(
 
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(54.dp)
                 .clip(CircleShape)
                 .background(androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant)
-                .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), CircleShape)
+                .border(2.dp, if (chat.isPinned) Color(0xFF2AABEE).copy(alpha = 0.9f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), CircleShape)
                 .clickable(
                     onClick = { onAvatarClick() },
                     onClickLabel = "Посмотреть профиль ${chat.title}"
@@ -2378,17 +2486,16 @@ fun ChatListItem(
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().clip(CircleShape)
             )
-            // Fallback letter if image is loading or fails (AsyncImage handles this nicely, but we can just put text behind it)
             val letter = chat.title.take(1).uppercase()
             Text(letter, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.align(Alignment.Center).zIndex(-1f))
         }
         
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(14.dp))
         
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isSecret) {
-                    Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF4CAF50))
+                    Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFF4CAF50))
                     Spacer(Modifier.width(4.dp))
                 } else if (chat.isChannel) {
                     Icon(Icons.Filled.Campaign, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
@@ -2478,14 +2585,16 @@ fun ChatListItem(
                         text = annotatedText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 } else if (chat.lastMessage.isNotEmpty()) {
                     Text(
                         text = chat.lastMessage,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 } else {
                     Text(
@@ -2498,15 +2607,269 @@ fun ChatListItem(
             }
         }
 
-        if (chat.unreadCount > 0) {
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Trailing column: Pin indicator, timestamp, and unread count
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Visual Indicator: Pin Icon and Timestamp
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                if (chat.isPinned) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF2AABEE).copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PushPin,
+                            contentDescription = "Закреплен",
+                            tint = Color(0xFF2AABEE),
+                            modifier = Modifier
+                                .size(13.dp)
+                                .graphicsLayer(rotationZ = 45f)
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
+
+                if (chat.lastMessageTimestamp > 0L) {
+                    val timeStr = remember(chat.lastMessageTimestamp) {
+                        val date = java.util.Date(chat.lastMessageTimestamp)
+                        val now = System.currentTimeMillis()
+                        val diff = now - chat.lastMessageTimestamp
+                        val calNow = java.util.Calendar.getInstance()
+                        val calMsg = java.util.Calendar.getInstance().apply { time = date }
+                        when {
+                            calNow.get(java.util.Calendar.YEAR) == calMsg.get(java.util.Calendar.YEAR) &&
+                            calNow.get(java.util.Calendar.DAY_OF_YEAR) == calMsg.get(java.util.Calendar.DAY_OF_YEAR) -> {
+                                java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(date)
+                            }
+                            diff < 7 * 86400_000L -> {
+                                java.text.SimpleDateFormat("EEE", java.util.Locale("ru")).format(date)
+                            }
+                            else -> {
+                                java.text.SimpleDateFormat("dd.MM", java.util.Locale.getDefault()).format(date)
+                            }
+                        }
+                    }
+                    Text(
+                        text = timeStr,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (chat.isPinned) Color(0xFF2AABEE) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            if (chat.unreadCount > 0) {
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary)
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = chat.unreadCount.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatActionBottomSheet(
+    chat: Chat,
+    onDismiss: () -> Unit,
+    onTogglePin: () -> Unit,
+    onToggleMute: () -> Unit,
+    onToggleArchive: () -> Unit,
+    onDelete: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E242C),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
             Box(
                 modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .width(36.dp)
+                    .height(4.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .background(Color.White.copy(alpha = 0.2f))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            // Header with chat name and type
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val icon = when {
+                        chat.isSecret -> Icons.Filled.Lock
+                        chat.isChannel -> Icons.Filled.Campaign
+                        chat.isGroup -> Icons.Filled.Groups
+                        chat.isBot -> Icons.Filled.SmartToy
+                        else -> Icons.Filled.Person
+                    }
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = chat.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = when {
+                            chat.isSecret -> "Секретный чат"
+                            chat.isChannel -> "Канал"
+                            chat.isGroup -> "Группа"
+                            chat.isBot -> "Бот"
+                            else -> "Личный чат"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+            Spacer(Modifier.height(6.dp))
+
+            // 1. Pin / Unpin
+            ChatActionMenuItem(
+                icon = Icons.Filled.PushPin,
+                title = if (chat.isPinned) "Открепить" else "Закрепить",
+                subtitle = if (chat.isPinned) "Убрать из начала списка" else "Закрепить вверху списка",
+                tint = if (chat.isPinned) Color(0xFFE5A00D) else Color(0xFF2AABEE),
+                onClick = onTogglePin
+            )
+
+            // 2. Mute / Unmute
+            ChatActionMenuItem(
+                icon = if (chat.isMuted) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                title = if (chat.isMuted) "Включить звук" else "Без звука",
+                subtitle = if (chat.isMuted) "Включить уведомления" else "Отключить звук уведомлений",
+                tint = Color.White.copy(alpha = 0.85f),
+                onClick = onToggleMute
+            )
+
+            // 3. Archive / Unarchive
+            ChatActionMenuItem(
+                icon = if (chat.isArchived) Icons.Filled.Unarchive else Icons.Filled.Archive,
+                title = if (chat.isArchived) "Вернуть из архива" else "В архив",
+                subtitle = if (chat.isArchived) "Переместить в общий список" else "Скрыть в папку архива",
+                tint = Color.White.copy(alpha = 0.85f),
+                onClick = onToggleArchive
+            )
+
+            // 4. Delete Chat
+            ChatActionMenuItem(
+                icon = Icons.Filled.Delete,
+                title = "Удалить чат",
+                subtitle = "Удалить переписку и историю",
+                tint = Color(0xFFFF5252),
+                isDestructive = true,
+                onClick = onDelete
+            )
+
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun ChatActionMenuItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    tint: Color,
+    isDestructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(tint.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(chat.unreadCount.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary)
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = tint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDestructive) Color(0xFFFF5252) else Color.White
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.5f)
+                )
             }
         }
     }
@@ -3384,8 +3747,6 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
 
     val groupedContacts = if (sortByName) sortedContacts.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' } else emptyMap()
 
-    var isSyncingContacts by remember { mutableStateOf(false) }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -3396,27 +3757,6 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        if (permissionState.status.isGranted) {
-                            isSyncingContacts = true
-                            viewModel.syncDeviceContactsFromPhone(context) { count ->
-                                isSyncingContacts = false
-                                if (count > 0) {
-                                    android.widget.Toast.makeText(context, "Синхронизировано $count контактов с устройства!", android.widget.Toast.LENGTH_SHORT).show()
-                                } else {
-                                    android.widget.Toast.makeText(context, "Контакты устройства синхронизированы", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        } else {
-                            permissionState.launchPermissionRequest()
-                        }
-                    }) {
-                        if (isSyncingContacts) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
-                        } else {
-                            Icon(Icons.Filled.Sync, contentDescription = "Синхронизировать контакты")
-                        }
-                    }
                     IconButton(onClick = { showQrScanner = true }) {
                         Icon(Icons.Filled.QrCodeScanner, contentDescription = "Сканировать QR-код")
                     }
@@ -3482,45 +3822,6 @@ fun ContactsScreen(viewModel: AppViewModel, navController: NavController) {
                     }
                     Spacer(Modifier.width(16.dp))
                     Text("Новый контакт", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-
-                // Telegram-style "Синхронизировать с телефоном" row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (permissionState.status.isGranted) {
-                                isSyncingContacts = true
-                                viewModel.syncDeviceContactsFromPhone(context) { count ->
-                                    isSyncingContacts = false
-                                    if (count > 0) {
-                                        android.widget.Toast.makeText(context, "Синхронизировано $count контактов с устройства!", android.widget.Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        android.widget.Toast.makeText(context, "Контакты устройства синхронизированы", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            } else {
-                                permissionState.launchPermissionRequest()
-                            }
-                        }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF0284C7)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSyncingContacts) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
-                        } else {
-                            Icon(Icons.Filled.Sync, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text("Синхронизировать с телефоном", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Импорт контактов из телефонной книги", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                    }
                 }
 
                 Row(

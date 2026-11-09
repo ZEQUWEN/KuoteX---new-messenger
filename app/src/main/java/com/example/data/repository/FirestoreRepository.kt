@@ -60,6 +60,7 @@ interface ChatDataRepository {
     suspend fun updateBlockedStatus(chatId: String, isBlocked: Boolean)
     suspend fun updateArchiveStatus(chatId: String, isArchived: Boolean)
     suspend fun updateMuteStatus(chatId: String, isMuted: Boolean)
+    suspend fun updateChatPinStatus(chatId: String, isPinned: Boolean, pinnedTimestamp: Long)
     suspend fun deleteChat(chatId: String)
     
     fun getMessagesForChat(chatId: String): Flow<List<Message>>
@@ -184,6 +185,7 @@ class ChatDataRepositoryImpl(
     override suspend fun updateBlockedStatus(chatId: String, isBlocked: Boolean) = chatDao.updateBlockedStatus(chatId, isBlocked)
     override suspend fun updateArchiveStatus(chatId: String, isArchived: Boolean) = chatDao.updateArchiveStatus(chatId, isArchived)
     override suspend fun updateMuteStatus(chatId: String, isMuted: Boolean) = chatDao.updateMuteStatus(chatId, isMuted)
+    override suspend fun updateChatPinStatus(chatId: String, isPinned: Boolean, pinnedTimestamp: Long) = chatDao.updateChatPinStatus(chatId, isPinned, pinnedTimestamp)
     override suspend fun deleteChat(chatId: String) = chatDao.deleteChat(chatId)
 
     override fun getMessagesForChat(chatId: String): Flow<List<Message>> = messageDao.getMessagesForChat(chatId)

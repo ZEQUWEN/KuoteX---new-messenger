@@ -129,7 +129,9 @@ data class Chat(
     val isBlocked: Boolean = false,
     val isActionMenuDismissed: Boolean = false,
     val isArchived: Boolean = false,
-    val isMuted: Boolean = false
+    val isMuted: Boolean = false,
+    val isPinned: Boolean = false,
+    val pinnedTimestamp: Long = 0L
 )
 
 @Entity(
@@ -1835,6 +1837,25 @@ class AppViewModel(
         }
     }
     
+    fun togglePinChat(chatId: String, onLimitReached: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val currentChats = chats.value
+            val chat = currentChats.find { it.id == chatId } ?: return@launch
+            if (!chat.isPinned) {
+                val currentPinnedCount = currentChats.count { it.isPinned && !it.isArchived && !it.isBlocked }
+                if (currentPinnedCount >= 5) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onLimitReached?.invoke()
+                    }
+                    return@launch
+                }
+                repository.updateChatPinStatus(chatId, true, System.currentTimeMillis())
+            } else {
+                repository.updateChatPinStatus(chatId, false, 0L)
+            }
+        }
+    }
+
     fun toggleMute(chatId: String, isMuted: Boolean) {
         viewModelScope.launch {
             repository.updateMuteStatus(chatId, isMuted)
