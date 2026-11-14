@@ -84,12 +84,11 @@ fun ChannelProfileScreen(
 
     val members by viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList())
     val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
-    val currentMember = members.find { 
-        it.userId == (activeAccount?.id ?: "me") || 
-        (activeAccount?.displayName?.isNotBlank() == true && it.userName == activeAccount?.displayName)
-    }
-    val isAdmin = currentMember?.isAdmin == true || 
-        (members.isEmpty() && chat?.lastMessageSenderName == activeAccount?.displayName && !activeAccount?.displayName.isNullOrBlank())
+    val isAdmin = isChannelAdminOrCreator(members, activeAccount)
+    val adminsCount = members.count {
+        it.isAdmin || it.role == "creator" || it.role == "admin"
+    }.coerceAtLeast(1)
+    val subscribersCount = maxOf(customization.subscriberCount, members.size)
     val pollsMap by ChannelCustomizationManager.getPollsFlow(chatId).collectAsState()
     val polls = pollsMap[chatId] ?: emptyList()
 
@@ -459,57 +458,78 @@ fun ChannelProfileScreen(
             TopAppBar(
                 title = { },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStackSafe() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
+                    Box(modifier = Modifier.padding(start = 8.dp)) {
+                        Surface(
+                            onClick = { navController.popBackStackSafe() },
+                            shape = CircleShape,
+                            color = Color(0xFF1E242E),
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
+                            }
+                        }
                     }
                 },
                 actions = {
-                    if (isAdmin) {
-                        IconButton(onClick = { navController.navigateSafe("channel_admin/$chatId") }) {
-                            Icon(Icons.Filled.Edit, contentDescription = "Изменить", tint = Color.White)
-                        }
-                    }
-
-                    Box {
-                        IconButton(onClick = { showOptionsMenu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "Опции", tint = Color.White)
-                        }
-
-                        ChannelProfileDropdownMenu(
-                            expanded = showOptionsMenu,
-                            onDismissRequest = { showOptionsMenu = false },
-                            isAdmin = isAdmin,
-                            isChannel = isChannel,
-                            channelTitle = chat?.title ?: "Канал",
-                            currentAutoDeletePeriod = customization.autoDeletePeriod,
-                            onAutoDeleteSelected = { period ->
-                                ChannelCustomizationManager.updateAutoDelete(chatId, period)
-                                if (period != null) {
-                                    Toast.makeText(
-                                        context,
-                                        "Новые сообщения в чате будут автоматически удаляться через $period",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                } else {
-                                    Toast.makeText(
-                                        context,
-                                        "Автоудаление выключено.",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                    Box(modifier = Modifier.padding(end = 8.dp)) {
+                        Surface(
+                            shape = RoundedCornerShape(21.dp),
+                            color = Color(0xFF1E242E)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isAdmin) {
+                                    IconButton(
+                                        onClick = { navController.navigateSafe("channel_admin/$chatId") },
+                                        modifier = Modifier.size(42.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Edit, contentDescription = "Изменить", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    }
                                 }
-                            },
-                            onOpenAutoDeleteCustomWheel = {
-                                showAutoDeleteWheel = true
-                            },
-                            onStartLiveStream = {
-                                navController.navigateSafe("broadcast")
-                            },
-                            onOpenStats = {
-                                navController.navigateSafe("channel_boost/$chatId")
-                            },
-                            onOpenStoriesArchive = {
-                                showStoriesArchive = true
-                            },
+
+                                Box {
+                                    IconButton(
+                                        onClick = { showOptionsMenu = true },
+                                        modifier = Modifier.size(42.dp)
+                                    ) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = "Опции", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    }
+
+                                    ChannelProfileDropdownMenu(
+                                        expanded = showOptionsMenu,
+                                        onDismissRequest = { showOptionsMenu = false },
+                                        isAdmin = isAdmin,
+                                        isChannel = isChannel,
+                                        channelTitle = chat?.title ?: "Канал",
+                                        currentAutoDeletePeriod = customization.autoDeletePeriod,
+                                        onAutoDeleteSelected = { period ->
+                                            ChannelCustomizationManager.updateAutoDelete(chatId, period)
+                                            if (period != null) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Новые сообщения в чате будут автоматически удаляться через $period",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Автоудаление выключено.",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        },
+                                        onOpenAutoDeleteCustomWheel = {
+                                            showAutoDeleteWheel = true
+                                        },
+                                        onStartLiveStream = {
+                                            navController.navigateSafe("broadcast/$chatId")
+                                        },
+                                        onOpenStats = {
+                                            navController.navigateSafe("channel_admin/$chatId/stats")
+                                        },
+                                        onOpenStoriesArchive = {
+                                            showStoriesArchive = true
+                                        },
                             onShare = {
                                 try {
                                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -568,6 +588,9 @@ fun ChannelProfileScreen(
                                 Toast.makeText(context, "Видео", Toast.LENGTH_SHORT).show()
                             }
                         )
+                                }
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F141C))
@@ -603,13 +626,19 @@ fun ChannelProfileScreen(
                             modifier = Modifier
                                 .size(96.dp)
                                 .clip(CircleShape)
-                                .clickable {
-                                    channelPhotoPickerLauncher.launch(
-                                        androidx.activity.result.PickVisualMediaRequest(
-                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
-                                        )
-                                    )
-                                }
+                                .then(
+                                    if (isAdmin) {
+                                        Modifier.clickable {
+                                            channelPhotoPickerLauncher.launch(
+                                                androidx.activity.result.PickVisualMediaRequest(
+                                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                )
+                                            )
+                                        }
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                                 .background(
                                     Brush.linearGradient(
                                         listOf(Color(0xFFFF9900), Color(0xFFFF5E36))
@@ -713,7 +742,9 @@ fun ChannelProfileScreen(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(Color.White.copy(alpha = 0.12f))
-                                        .clickable { showEmojiPicker = true }
+                                        .then(
+                                            if (isAdmin) Modifier.clickable { showEmojiPicker = true } else Modifier
+                                        )
                                         .padding(horizontal = 4.dp, vertical = 2.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -768,12 +799,12 @@ fun ChannelProfileScreen(
 
                             Spacer(Modifier.height(4.dp))
 
-                            // Subtitle: format subscriber count matching Screenshot 1
+                            // Subtitle matching Telegram screenshot ("публичный канал" / "частный канал")
                             Text(
-                                text = if (chat?.isGroup == true) {
-                                    "${customization.subscriberCount} участников"
-                                } else {
-                                    formatSubscriberCount(customization.subscriberCount)
+                                text = when {
+                                    chat?.isGroup == true -> "$subscribersCount участников"
+                                    customization.isPublic -> "публичный канал"
+                                    else -> "частный канал"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.7f)
@@ -988,9 +1019,9 @@ fun ChannelProfileScreen(
                             TelegramProfileListRow(
                                 icon = Icons.Filled.People,
                                 title = "Подписчики",
-                                badgeValue = "${customization.subscriberCount}",
+                                badgeValue = "$subscribersCount",
                                 onClick = {
-                                    navController.navigateSafe("channel_admin/$chatId")
+                                    navController.navigateSafe("channel_admin/$chatId/subscribers")
                                 }
                             )
 
@@ -1003,9 +1034,9 @@ fun ChannelProfileScreen(
                             TelegramProfileListRow(
                                 icon = Icons.Filled.Shield,
                                 title = "Администраторы",
-                                badgeValue = "1",
+                                badgeValue = "$adminsCount",
                                 onClick = {
-                                    navController.navigateSafe("channel_admin/$chatId")
+                                    navController.navigateSafe("channel_admin/$chatId/admins")
                                 }
                             )
 

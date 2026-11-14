@@ -430,6 +430,8 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     val channelPollsMap by ChannelCustomizationManager.getPollsFlow(chatId).collectAsState()
     val channelPolls = channelPollsMap[chatId] ?: emptyList()
     var showCreatePollDialog by remember { mutableStateOf(false) }
+    val isChannelOrGroupAdmin = com.example.ui.channel.isChannelAdminOrCreator(groupMembers, activeAccount)
+    val isCopyingRestricted = chat.isChannel && channelCustomization.restrictSavingContent && !isChannelOrGroupAdmin
     
     Scaffold(
         containerColor = Color.Transparent,
@@ -476,17 +478,19 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                             }
                         }
 
-                        IconButton(onClick = {
-                            val combinedText = selectedMsgs.joinToString("\n\n") { it.text }
-                            if (combinedText.isNotBlank()) {
-                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(combinedText))
-                                android.widget.Toast.makeText(context, "Скопировано", android.widget.Toast.LENGTH_SHORT).show()
+                        if (!isCopyingRestricted) {
+                            IconButton(onClick = {
+                                val combinedText = selectedMsgs.joinToString("\n\n") { it.text }
+                                if (combinedText.isNotBlank()) {
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(combinedText))
+                                    android.widget.Toast.makeText(context, "Скопировано", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                selectedMessageIds = emptySet()
+                            }) {
+                                Icon(Icons.Filled.ContentCopy, contentDescription = "Копировать выбранные сообщения")
                             }
-                            selectedMessageIds = emptySet()
-                        }) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = "Копировать выбранные сообщения")
                         }
-                        if (!chat.isSecret) {
+                        if (!chat.isSecret && !isCopyingRestricted) {
                             IconButton(onClick = {
                                 messagesToForward = selectedMsgs
                                 selectedMessageIds = emptySet()
@@ -658,7 +662,13 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                         glowColor = channelPalette.primaryColor,
                                         size = 20.dp,
                                         fontSize = 12.sp,
-                                        onClick = { navController.navigate("channel_appearance/$chatId") }
+                                        onClick = {
+                                            if (!chat.isChannel || isChannelOrGroupAdmin) {
+                                                navController.navigate("channel_appearance/$chatId")
+                                            } else {
+                                                navController.navigate("profile/$chatId")
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -750,7 +760,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                             com.example.ui.channel.ChannelChatDropdownMenu(
                                 expanded = expanded,
                                 onDismissRequest = { expanded = false },
-                                isAdmin = true,
+                                isAdmin = isChannelOrGroupAdmin,
                                 isChannel = chat.isChannel,
                                 isGroup = chat.isGroup,
                                 isMuted = chat.isMuted,
@@ -906,7 +916,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                 }
 
                                 // Right: Forward
-                                if (!chat.isSecret) {
+                                if (!chat.isSecret && !isCopyingRestricted) {
                                     Button(
                                         onClick = {
                                             messagesToForward = selMsgs
@@ -930,6 +940,76 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally)
                         )
+                    }
+                } else if (chat.isChannel && !isChannelOrGroupAdmin) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding(),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+                        tonalElevation = 4.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    viewModel.toggleMute(chatId, !chat.isMuted)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        if (!chat.isMuted) "Уведомления выключены" else "Уведомления включены",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .then(androidx.compose.ui.Modifier.let { Modifier.semantics { testTag = "channel_subscriber_mute_button" } })
+                            ) {
+                                Icon(
+                                    imageVector = if (chat.isMuted) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (chat.isMuted) "Включить звук" else "Выключить звук",
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            if (channelCustomization.discussionChatTitle.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val linkedId = channelCustomization.discussionChatId
+                                        if (linkedId != null) {
+                                            navController.navigate("chat/$linkedId")
+                                        } else {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Обсуждение: ${channelCustomization.discussionChatTitle}",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier.semantics { testTag = "channel_subscriber_discuss_button" }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.ChatBubbleOutline,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Обсудить")
+                                }
+                            }
+                        }
                     }
                 } else {
                 Surface(
@@ -2428,7 +2508,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     customQuoteText = null
                     activeVideoNoteToView = null
                 },
-                onForward = if (!chat.isSecret) {
+                onForward = if (!chat.isSecret && !isCopyingRestricted) {
                     {
                         messagesToForward = listOf(vMsg)
                         activeVideoNoteToView = null
@@ -3010,7 +3090,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                         }
 
                         // Forward
-                        if (!chat.isSecret) {
+                        if (!chat.isSecret && !isCopyingRestricted) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

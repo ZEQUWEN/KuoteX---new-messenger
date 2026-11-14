@@ -78,6 +78,16 @@ object AppDestinations {
     const val GIFTS_MARKETPLACE = "gifts_marketplace?userId={userId}&userName={userName}"
     const val GROUP_ADMIN = "group_admin/{chatId}"
     const val CHANNEL_ADMIN = "channel_admin/{chatId}"
+    const val CHANNEL_ADMIN_TYPE = "channel_admin/{chatId}/type"
+    const val CHANNEL_ADMIN_DISCUSSION = "channel_admin/{chatId}/discussion"
+    const val CHANNEL_ADMIN_ADMINS = "channel_admin/{chatId}/admins"
+    const val CHANNEL_ADMIN_SUBSCRIBERS = "channel_admin/{chatId}/subscribers"
+    const val CHANNEL_ADMIN_REACTIONS = "channel_admin/{chatId}/reactions"
+    const val CHANNEL_ADMIN_BLACKLIST = "channel_admin/{chatId}/blacklist"
+    const val CHANNEL_ADMIN_STATS = "channel_admin/{chatId}/stats"
+    const val CHANNEL_ADMIN_RECENT_ACTIONS = "channel_admin/{chatId}/recent_actions"
+    const val CHANNEL_ADMIN_GREETING = "channel_admin/{chatId}/greeting"
+    const val CHANNEL_ADMIN_DIRECT_MESSAGES = "channel_admin/{chatId}/direct_messages"
     const val CHANNEL_APPEARANCE = "channel_appearance/{chatId}"
     const val CHANNEL_BOOST = "channel_boost/{chatId}"
 
@@ -93,6 +103,16 @@ object AppDestinations {
     }
     fun groupAdmin(chatId: String) = "group_admin/$chatId"
     fun channelAdmin(chatId: String) = "channel_admin/$chatId"
+    fun channelAdminType(chatId: String) = "channel_admin/$chatId/type"
+    fun channelAdminDiscussion(chatId: String) = "channel_admin/$chatId/discussion"
+    fun channelAdminAdmins(chatId: String) = "channel_admin/$chatId/admins"
+    fun channelAdminSubscribers(chatId: String) = "channel_admin/$chatId/subscribers"
+    fun channelAdminReactions(chatId: String) = "channel_admin/$chatId/reactions"
+    fun channelAdminBlacklist(chatId: String) = "channel_admin/$chatId/blacklist"
+    fun channelAdminStats(chatId: String) = "channel_admin/$chatId/stats"
+    fun channelAdminRecentActions(chatId: String) = "channel_admin/$chatId/recent_actions"
+    fun channelAdminGreeting(chatId: String) = "channel_admin/$chatId/greeting"
+    fun channelAdminDirectMessages(chatId: String) = "channel_admin/$chatId/direct_messages"
     fun channelAppearance(chatId: String) = "channel_appearance/$chatId"
     fun channelBoost(chatId: String) = "channel_boost/$chatId"
     fun privacy(title: String) = "settings/privacy/$title"
@@ -563,11 +583,13 @@ fun MainAppNavGraph(
             val chatId = backStackEntry.arguments?.getString("chatId")
             if (chatId != null) {
                 CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
-                    ChannelGroupAdminScreen(
-                        viewModel = viewModel,
-                        chatId = chatId,
-                        navController = navController
-                    )
+                    ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                        ChannelGroupAdminScreen(
+                            viewModel = viewModel,
+                            chatId = chatId,
+                            navController = navController
+                        )
+                    }
                 }
             }
         }
@@ -575,11 +597,93 @@ fun MainAppNavGraph(
             val chatId = backStackEntry.arguments?.getString("chatId")
             if (chatId != null) {
                 CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
-                    ChannelGroupAdminScreen(
-                        viewModel = viewModel,
-                        chatId = chatId,
-                        navController = navController
-                    )
+                    ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                        ChannelGroupAdminScreen(
+                            viewModel = viewModel,
+                            chatId = chatId,
+                            navController = navController
+                        )
+                    }
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_TYPE) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelTypeAdminScreen(viewModel = viewModel, chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_DISCUSSION) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelDiscussionAdminScreen(viewModel = viewModel, chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_ADMINS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelAdminsScreen(viewModel = viewModel, chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_SUBSCRIBERS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelSubscribersScreen(viewModel = viewModel, chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_REACTIONS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelReactionsAdminScreen(viewModel = viewModel, chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_BLACKLIST) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelBlacklistScreen(viewModel = viewModel, chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_STATS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelStatsScreen(viewModel = viewModel, chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_RECENT_ACTIONS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelRecentActionsScreen(chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_GREETING) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelGreetingScreen(chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_DIRECT_MESSAGES) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelDirectMessagesScreen(chatId = chatId, navController = navController)
                 }
             }
         }
@@ -587,11 +691,13 @@ fun MainAppNavGraph(
             val chatId = backStackEntry.arguments?.getString("chatId")
             if (chatId != null) {
                 CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
-                    ChannelAppearanceScreen(
-                        viewModel = viewModel,
-                        chatId = chatId,
-                        navController = navController
-                    )
+                    ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                        ChannelAppearanceScreen(
+                            viewModel = viewModel,
+                            chatId = chatId,
+                            navController = navController
+                        )
+                    }
                 }
             }
         }

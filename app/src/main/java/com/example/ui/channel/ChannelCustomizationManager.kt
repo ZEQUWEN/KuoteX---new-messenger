@@ -396,6 +396,36 @@ object ChannelCustomizationManager {
         }
     }
 
+    fun initializeCreatedChannel(
+        chatId: String,
+        description: String,
+        isPublic: Boolean,
+        inviteLink: String,
+        avatarUrl: String?
+    ) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            val updated = current.copy(
+                description = description,
+                isPublic = isPublic,
+                inviteLink = inviteLink,
+                avatarUrl = avatarUrl,
+                discussionChatId = null,
+                discussionChatTitle = "",
+                subscriberCount = 1,
+                boostLevel = 0,
+                boostCount = 0,
+                boostsRequiredForNextLevel = 3
+            )
+            map + (chatId to updated)
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Создан канал",
+            details = if (isPublic) "Публичный канал ($inviteLink)" else "Частный канал"
+        )
+    }
+
     fun updateChannelType(chatId: String, isPublic: Boolean, inviteLink: String, restrictSaving: Boolean) {
         customizations.update { map ->
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
@@ -417,6 +447,119 @@ object ChannelCustomizationManager {
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
             map + (chatId to current.copy(discussionChatTitle = discussionTitle))
         }
+        logAdminAction(
+            chatId = chatId,
+            title = "Обсуждение",
+            details = "Привязана группа «$discussionTitle»"
+        )
+    }
+
+    fun linkDiscussionChat(chatId: String, discussionChatId: String?, discussionTitle: String) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            map + (chatId to current.copy(
+                discussionChatId = discussionChatId,
+                discussionChatTitle = discussionTitle
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Привязана группа обсуждений",
+            details = "Группа «$discussionTitle»"
+        )
+    }
+
+    fun unlinkDiscussionChat(chatId: String) {
+        val oldTitle = customizations.value[chatId]?.discussionChatTitle ?: ""
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            map + (chatId to current.copy(
+                discussionChatId = null,
+                discussionChatTitle = ""
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Отвязана группа обсуждений",
+            details = if (oldTitle.isNotBlank()) "Группа «$oldTitle» отвязана" else "Обсуждение отключено"
+        )
+    }
+
+    fun banUser(chatId: String, userId: String, userName: String, reason: String = "Нарушение правил канала", bannedBy: String = "Вы") {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            if (current.blacklistedUsers.any { it.userId == userId }) return@update map
+            val entry = BlacklistedUser(
+                userId = userId,
+                userName = userName,
+                reason = reason,
+                bannedBy = bannedBy,
+                timestamp = System.currentTimeMillis()
+            )
+            map + (chatId to current.copy(
+                blacklistedUsers = listOf(entry) + current.blacklistedUsers,
+                subscriberCount = (current.subscriberCount - 1).coerceAtLeast(1)
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Блокировка пользователя",
+            details = "$userName добавлен в чёрный список ($reason)"
+        )
+    }
+
+    fun unbanUser(chatId: String, userId: String) {
+        var unbannedName = userId
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            unbannedName = current.blacklistedUsers.find { it.userId == userId }?.userName ?: userId
+            map + (chatId to current.copy(
+                blacklistedUsers = current.blacklistedUsers.filterNot { it.userId == userId }
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Удаление из чёрного списка",
+            details = "Пользователь $unbannedName разблокирован"
+        )
+    }
+
+    fun createInviteLink(chatId: String, label: String = "", maxUses: Int? = null, durationDays: Int? = null): ChannelInviteLink {
+        val code = java.util.UUID.randomUUID().toString().replace("-", "").take(14)
+        val link = ChannelInviteLink(
+            url = "t.me/+$code",
+            label = label.ifBlank { "Дополнительная ссылка" },
+            maxUses = maxUses,
+            expiresAt = durationDays?.let { System.currentTimeMillis() + it * 86_400_000L }
+        )
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            map + (chatId to current.copy(additionalInviteLinks = listOf(link) + current.additionalInviteLinks))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Создана пригласительная ссылка",
+            details = "${link.label}: ${link.url}"
+        )
+        return link
+    }
+
+    fun revokeInviteLink(chatId: String, linkId: String) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            map + (chatId to current.copy(
+                additionalInviteLinks = current.additionalInviteLinks.filterNot { it.id == linkId }
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Отозвана ссылка-приглашение",
+            details = "Ссылка больше недействительна"
+        )
+    }
+
+    fun recordAdminLog(chatId: String, title: String, details: String) {
+        logAdminAction(chatId, title, details)
     }
 
     // --- Poll & Voting Operations ---

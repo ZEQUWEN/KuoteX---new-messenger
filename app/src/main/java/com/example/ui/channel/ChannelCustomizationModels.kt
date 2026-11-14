@@ -236,10 +236,31 @@ data class ChannelCustomization(
     val autoGreetingText: String = "Новое приветствие\nПриветствие будет автоматически отправляться новым участникам.",
     val restrictSavingContent: Boolean = false,
     val isPublic: Boolean = true,
-    val autoDeletePeriod: String? = null
+    val autoDeletePeriod: String? = null,
+    val blacklistedUsers: List<BlacklistedUser> = emptyList(),
+    val additionalInviteLinks: List<ChannelInviteLink> = emptyList()
 ) {
     val wallpaperId: String get() = chatWallpaperId
 }
+
+data class BlacklistedUser(
+    val userId: String,
+    val userName: String,
+    val reason: String = "Нарушение правил канала",
+    val bannedBy: String = "Администратор",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+data class ChannelInviteLink(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val url: String,
+    val label: String = "",
+    val createdBy: String = "Владелец",
+    val usageCount: Int = 0,
+    val maxUses: Int? = null,
+    val expiresAt: Long? = null,
+    val isPrimary: Boolean = false
+)
 
 /**
  * Boost Perk definition for channel levels.

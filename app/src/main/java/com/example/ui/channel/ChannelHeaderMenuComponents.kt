@@ -168,14 +168,23 @@ fun ChannelChatDropdownMenu(
                                 )
                             }
 
-                            // 5. Очистить историю
-                            if (onClearHistory != null) {
+                            // 5. Очистить историю (Admins only) / Пожаловаться (Subscribers)
+                            if (isAdmin && onClearHistory != null) {
                                 TelegramMenuRow(
                                     icon = Icons.Outlined.CleaningServices,
                                     title = "Очистить историю",
                                     onClick = {
                                         onDismissRequest()
                                         onClearHistory()
+                                    }
+                                )
+                            } else if (!isAdmin && onReport != null) {
+                                TelegramMenuRow(
+                                    icon = Icons.Outlined.Info,
+                                    title = "Пожаловаться",
+                                    onClick = {
+                                        onDismissRequest()
+                                        onReport()
                                     }
                                 )
                             }

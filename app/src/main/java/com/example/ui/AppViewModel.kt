@@ -145,7 +145,16 @@ data class GroupMember(
     val userName: String,
     val isAdmin: Boolean = false,
     val canReadMessages: Boolean = true,
-    val canSendMessages: Boolean = true
+    val canSendMessages: Boolean = true,
+    val role: String = "subscriber", // "creator", "admin", "subscriber", "bot"
+    val joinedAt: Long = System.currentTimeMillis(),
+    val promotedBy: String? = null,
+    val customTitle: String = "",
+    val canPostMessages: Boolean = false,
+    val canEditMessages: Boolean = false,
+    val canDeleteMessages: Boolean = false,
+    val canManageStreams: Boolean = false,
+    val canAddAdmins: Boolean = false
 )
 
 @Entity(
@@ -966,6 +975,46 @@ class AppViewModel(
                     repository.insertChat(ch)
                 }
             }
+
+            // Seed channel roles so creators/admins and regular subscribers are strictly separated
+            val nowTs = System.currentTimeMillis()
+            val c2Members = repository.getGroupMembers("c2").firstOrNull().orEmpty()
+            if (c2Members.isEmpty()) {
+                val active = repository.activeAccountFlow.firstOrNull()
+                val ownerId = active?.id ?: "123456789"
+                val ownerName = active?.displayName?.ifBlank { "Neo" } ?: "Neo"
+                listOf(
+                    GroupMember("c2", ownerId, ownerName, isAdmin = true, role = "creator", joinedAt = nowTs - 86400_000L * 30, canPostMessages = true, canEditMessages = true, canDeleteMessages = true, canManageStreams = true, canAddAdmins = true),
+                    GroupMember("c2", "u12", "Alex KuoteX", isAdmin = true, role = "admin", promotedBy = ownerName, joinedAt = nowTs - 86400_000L * 20, customTitle = "Редактор", canPostMessages = true, canEditMessages = true, canDeleteMessages = false, canManageStreams = true),
+                    GroupMember("c2", "shop_bot", "Shop Bot", isAdmin = false, role = "bot", canReadMessages = false, canSendMessages = false, joinedAt = nowTs - 86400_000L * 15),
+                    GroupMember("c2", "u11", "Alice Hacker", isAdmin = false, role = "subscriber", joinedAt = nowTs - 86400_000L * 10),
+                    GroupMember("c2", "u13", "Elena Star", isAdmin = false, role = "subscriber", joinedAt = nowTs - 86400_000L * 7),
+                    GroupMember("c2", "u14", "John Satoshi", isAdmin = false, role = "subscriber", joinedAt = nowTs - 86400_000L * 3)
+                ).forEach { repository.insertGroupMember(it) }
+            }
+
+            listOf("c5", "c6", "c7", "c8", "c9").forEach { chId ->
+                val chMembers = repository.getGroupMembers(chId).firstOrNull().orEmpty()
+                if (chMembers.isEmpty()) {
+                    val active = repository.activeAccountFlow.firstOrNull()
+                    val currentId = active?.id ?: "123456789"
+                    val currentName = active?.displayName?.ifBlank { "Neo" } ?: "Neo"
+                    val seeded = mutableListOf(
+                        GroupMember(chId, "u10", "Pavel Durov", isAdmin = true, role = "creator", joinedAt = nowTs - 86400_000L * 60, canPostMessages = true, canEditMessages = true, canDeleteMessages = true, canManageStreams = true, canAddAdmins = true),
+                        GroupMember(chId, "u12", "Alex KuoteX", isAdmin = true, role = "admin", promotedBy = "Pavel Durov", joinedAt = nowTs - 86400_000L * 45, canPostMessages = true, canEditMessages = true),
+                        GroupMember(chId, "u13", "Elena Star", isAdmin = true, role = "admin", promotedBy = "Pavel Durov", joinedAt = nowTs - 86400_000L * 30, canPostMessages = true),
+                        GroupMember(chId, "shop_bot", "Shop Bot", isAdmin = false, role = "bot", canReadMessages = false, canSendMessages = false, joinedAt = nowTs - 86400_000L * 25),
+                        GroupMember(chId, "u11", "Alice Hacker", isAdmin = false, role = "subscriber", joinedAt = nowTs - 86400_000L * 14),
+                        GroupMember(chId, "u14", "John Satoshi", isAdmin = false, role = "subscriber", joinedAt = nowTs - 86400_000L * 8)
+                    )
+                    if (currentId != "u10" && currentId != "u12" && currentId != "u13") {
+                        seeded.add(
+                            GroupMember(chId, currentId, currentName, isAdmin = false, role = "subscriber", joinedAt = nowTs - 86400_000L * 5)
+                        )
+                    }
+                    seeded.forEach { repository.insertGroupMember(it) }
+                }
+            }
         }
         // Cache Manager Service
         viewModelScope.launch {
@@ -1389,9 +1438,70 @@ class AppViewModel(
         }
     }
     
-    fun addGroupMember(chatId: String, userId: String, userName: String, isAdmin: Boolean) {
+    fun addGroupMember(chatId: String, userId: String, userName: String, isAdmin: Boolean, role: String = if (isAdmin) "admin" else "subscriber") {
         viewModelScope.launch {
-            repository.insertGroupMember(com.example.ui.GroupMember(chatId, userId, userName, isAdmin))
+            repository.insertGroupMember(
+                com.example.ui.GroupMember(
+                    chatId = chatId,
+                    userId = userId,
+                    userName = userName,
+                    isAdmin = isAdmin,
+                    role = role,
+                    joinedAt = System.currentTimeMillis(),
+                    canPostMessages = isAdmin,
+                    canEditMessages = isAdmin
+                )
+            )
+        }
+    }
+
+    fun promoteOrUpdateChannelAdmin(
+        chatId: String,
+        userId: String,
+        userName: String,
+        customTitle: String,
+        canPost: Boolean,
+        canEdit: Boolean,
+        canDelete: Boolean,
+        canManageStreams: Boolean,
+        canAddAdmins: Boolean,
+        promotedByName: String
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getGroupMemberSync(chatId, userId)
+            val newRole = if (existing?.role == "creator") "creator" else "admin"
+            val updated = (existing ?: GroupMember(chatId = chatId, userId = userId, userName = userName)).copy(
+                userName = userName,
+                isAdmin = true,
+                role = newRole,
+                promotedBy = existing?.promotedBy ?: promotedByName,
+                customTitle = customTitle,
+                canPostMessages = canPost,
+                canEditMessages = canEdit,
+                canDeleteMessages = canDelete,
+                canManageStreams = canManageStreams,
+                canAddAdmins = canAddAdmins
+            )
+            repository.insertGroupMember(updated)
+        }
+    }
+
+    fun demoteChannelAdmin(chatId: String, userId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getGroupMemberSync(chatId, userId) ?: return@launch
+            if (existing.role == "creator") return@launch
+            repository.insertGroupMember(
+                existing.copy(
+                    isAdmin = false,
+                    role = "subscriber",
+                    customTitle = "",
+                    canPostMessages = false,
+                    canEditMessages = false,
+                    canDeleteMessages = false,
+                    canManageStreams = false,
+                    canAddAdmins = false
+                )
+            )
         }
     }
 
@@ -1407,6 +1517,13 @@ class AppViewModel(
     fun removeGroupMember(chatId: String, userId: String) {
         viewModelScope.launch {
             repository.removeMember(chatId, userId)
+        }
+    }
+
+    fun updateChatTitle(chatId: String, newTitle: String) {
+        if (newTitle.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateChatTitle(chatId, newTitle.trim())
         }
     }
 
@@ -1824,8 +1941,43 @@ class AppViewModel(
     }
     fun createChat(name: String, desc: String, photo: String, isPrivate: Boolean, linkOrUsername: String, isGroup: Boolean = false, isChannel: Boolean = false) {
         viewModelScope.launch {
-            val chat = Chat(id = java.util.UUID.randomUUID().toString(), title = name, isGroup = isGroup, isSecret = false, isChannel = isChannel, lastMessage = "")
+            val newChatId = java.util.UUID.randomUUID().toString()
+            val chat = Chat(id = newChatId, title = name, isGroup = isGroup, isSecret = false, isChannel = isChannel, lastMessage = "")
             repository.insertChat(chat)
+
+            if (isChannel || isGroup) {
+                val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+                val ownerId = active?.id ?: "123456789"
+                val ownerName = active?.displayName?.ifBlank { "Вы" } ?: "Вы"
+                repository.insertGroupMember(
+                    GroupMember(
+                        chatId = newChatId,
+                        userId = ownerId,
+                        userName = ownerName,
+                        isAdmin = true,
+                        role = "creator",
+                        joinedAt = System.currentTimeMillis(),
+                        canPostMessages = true,
+                        canEditMessages = true,
+                        canDeleteMessages = true,
+                        canManageStreams = true,
+                        canAddAdmins = true
+                    )
+                )
+                val normalizedHandle = linkOrUsername.trim()
+                    .removePrefix("https://")
+                    .removePrefix("http://")
+                    .removePrefix("t.me/")
+                    .removePrefix("@")
+                val finalLink = if (normalizedHandle.isNotBlank()) "t.me/$normalizedHandle" else "t.me/kuotex_${newChatId.take(6)}"
+                com.example.ui.channel.ChannelCustomizationManager.initializeCreatedChannel(
+                    chatId = newChatId,
+                    description = desc.ifBlank { "Добро пожаловать в канал «$name»." },
+                    isPublic = !isPrivate,
+                    inviteLink = finalLink,
+                    avatarUrl = photo.takeIf { it.isNotBlank() }
+                )
+            }
         }
     }
     fun toggleArchive(chatId: String, isArchived: Boolean) {

@@ -108,6 +108,9 @@ interface ChatDao {
     @Query("UPDATE chats SET isActionMenuDismissed = :isDismissed WHERE id = :chatId")
     suspend fun updateActionMenuDismissed(chatId: String, isDismissed: Boolean)
 
+    @Query("UPDATE chats SET title = :title WHERE id = :chatId")
+    suspend fun updateChatTitle(chatId: String, title: String)
+
     @Query("DELETE FROM chats WHERE id = :chatId")
     suspend fun deleteChat(chatId: String)
 }
@@ -299,7 +302,7 @@ interface QueuedMessageDao {
 }
 
 @androidx.room.TypeConverters(BotConverters::class)
-@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class], version = 24, exportSchema = false)
+@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class], version = 25, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun botDao(): BotDao
     abstract fun userDao(): UserDao
@@ -477,6 +480,7 @@ class MessengerRepository(
     suspend fun updateArchiveStatus(chatId: String, isArchived: Boolean) = chatDao.updateArchiveStatus(chatId, isArchived)
     suspend fun updateMuteStatus(chatId: String, isMuted: Boolean) = chatDao.updateMuteStatus(chatId, isMuted)
     suspend fun updateChatPinStatus(chatId: String, isPinned: Boolean, pinnedTimestamp: Long) = chatDao.updateChatPinStatus(chatId, isPinned, pinnedTimestamp)
+    suspend fun updateChatTitle(chatId: String, title: String) = chatDao.updateChatTitle(chatId, title)
     suspend fun updateContactStatus(chatId: String, isContact: Boolean) = chatDao.updateContactStatus(chatId, isContact)
     suspend fun updateActionMenuDismissed(chatId: String, isDismissed: Boolean) = chatDao.updateActionMenuDismissed(chatId, isDismissed)
     suspend fun insertMessage(message: Message) = messageDao.insertMessage(message.copy(text = CryptoManager.encrypt(message.text), audioPath = message.audioPath?.let { CryptoManager.encrypt(it) }, mediaPath = message.mediaPath?.let { CryptoManager.encrypt(it) }, documentData = message.documentData?.let { CryptoManager.encrypt(it) }))
