@@ -125,6 +125,11 @@ fun ChannelGroupAdminScreen(
     val members by viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList())
     val currentMember = findCurrentChannelMember(members, activeAccount)
     val isCreator = currentMember?.role == "creator"
+    val hasFullRights = currentMember?.let { hasFullChannelAdminRights(it) } == true
+    val canChangeInfo = isCreator || hasFullRights || (currentMember?.canChangeChannelInfo == true)
+    val canAccessDm = isCreator || hasFullRights || (currentMember?.canAccessDirectMessages == true)
+    val canManageGreetings = isCreator || hasFullRights || (currentMember?.canManageGreetings == true)
+    val canBanUsers = isCreator || hasFullRights || (currentMember?.canBanUsers == true)
 
     val adminsCount = members.count {
         it.isAdmin || it.role == "creator" || it.role == "admin"
@@ -404,13 +409,17 @@ fun ChannelGroupAdminScreen(
                         TelegramAdminSavePill(
                             testTag = "channel_admin_save",
                             onClick = {
-                                if (channelTitle.isNotBlank()) {
-                                    viewModel.updateChatTitle(chatId, channelTitle)
+                                if (canChangeInfo) {
+                                    if (channelTitle.isNotBlank()) {
+                                        viewModel.updateChatTitle(chatId, channelTitle)
+                                    }
+                                    ChannelCustomizationManager.updateChannelInfo(chatId, channelDesc, customization.inviteLink)
+                                    ChannelCustomizationManager.updateEmojiStatus(chatId, selectedStatusEmoji, isAnimated = true)
+                                    Toast.makeText(context, "Изменения сохранены!", Toast.LENGTH_SHORT).show()
+                                    navController.popBackStackSafe()
+                                } else {
+                                    Toast.makeText(context, "Нет прав на изменение профиля канала", Toast.LENGTH_SHORT).show()
                                 }
-                                ChannelCustomizationManager.updateChannelInfo(chatId, channelDesc, customization.inviteLink)
-                                ChannelCustomizationManager.updateEmojiStatus(chatId, selectedStatusEmoji, isAnimated = true)
-                                Toast.makeText(context, "Изменения сохранены!", Toast.LENGTH_SHORT).show()
-                                navController.popBackStackSafe()
                             }
                         )
                     }
@@ -445,7 +454,7 @@ fun ChannelGroupAdminScreen(
                                     .size(56.dp)
                                     .clip(CircleShape)
                                     .background(Brush.linearGradient(listOf(Color(0xFFBA7EFC), Color(0xFF8F52E6))))
-                                    .clickable {
+                                    .clickable(enabled = canChangeInfo) {
                                         photoPickerLauncher.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
@@ -481,7 +490,8 @@ fun ChannelGroupAdminScreen(
                                 ) {
                                     BasicTextField(
                                         value = channelTitle,
-                                        onValueChange = { channelTitle = it },
+                                        onValueChange = { if (canChangeInfo) channelTitle = it },
+                                        readOnly = !canChangeInfo,
                                         modifier = Modifier
                                             .weight(1f)
                                             .testTag("channel_title_input"),
@@ -534,18 +544,19 @@ fun ChannelGroupAdminScreen(
 
                         Spacer(Modifier.height(14.dp))
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    photoPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        if (canChangeInfo) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        photoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                             Icon(
                                 Icons.Outlined.AddAPhoto,
                                 contentDescription = "Выбрать фотографию",
@@ -560,6 +571,7 @@ fun ChannelGroupAdminScreen(
                                 fontWeight = FontWeight.Medium
                             )
                         }
+                        }
 
                         Spacer(Modifier.height(12.dp))
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
@@ -567,7 +579,8 @@ fun ChannelGroupAdminScreen(
 
                         BasicTextField(
                             value = channelDesc,
-                            onValueChange = { channelDesc = it },
+                            onValueChange = { if (canChangeInfo) channelDesc = it },
+                            readOnly = !canChangeInfo,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
@@ -605,7 +618,13 @@ fun ChannelGroupAdminScreen(
                             title = "Тип канала",
                             value = if (customization.isPublic) "Публичный" else "Частный",
                             testTag = "admin_row_channel_type",
-                            onClick = { navController.navigateSafe("channel_admin/$chatId/type") }
+                            onClick = {
+                                if (canChangeInfo) {
+                                    navController.navigateSafe("channel_admin/$chatId/type")
+                                } else {
+                                    Toast.makeText(context, "Нет прав на изменение типа канала", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
 
@@ -614,7 +633,13 @@ fun ChannelGroupAdminScreen(
                             title = "Обсуждение",
                             value = customization.discussionChatTitle.ifBlank { "Добавить" },
                             testTag = "admin_row_discussion",
-                            onClick = { navController.navigateSafe("channel_admin/$chatId/discussion") }
+                            onClick = {
+                                if (canChangeInfo) {
+                                    navController.navigateSafe("channel_admin/$chatId/discussion")
+                                } else {
+                                    Toast.makeText(context, "Нет прав на изменение профиля канала", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
 
@@ -624,7 +649,13 @@ fun ChannelGroupAdminScreen(
                             value = if (customization.directMessagesEnabled) "⭐ ${customization.directMessageStarPrice}" else "Выкл.",
                             iconTint = Color(0xFFFFD54F),
                             testTag = "admin_row_direct_messages",
-                            onClick = { navController.navigateSafe("channel_admin/$chatId/direct_messages") }
+                            onClick = {
+                                if (canAccessDm) {
+                                    navController.navigateSafe("channel_admin/$chatId/direct_messages")
+                                } else {
+                                    Toast.makeText(context, "Нет прав на доступ к сообщениям каналу", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
 
@@ -677,7 +708,13 @@ fun ChannelGroupAdminScreen(
                             title = "Приветствие",
                             value = if (customization.autoGreetingEnabled) "Вкл." else "Выкл.",
                             testTag = "admin_row_greeting",
-                            onClick = { navController.navigateSafe("channel_admin/$chatId/greeting") }
+                            onClick = {
+                                if (canManageGreetings) {
+                                    navController.navigateSafe("channel_admin/$chatId/greeting")
+                                } else {
+                                    Toast.makeText(context, "Нет прав на управление приветствиями", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
 
@@ -704,7 +741,13 @@ fun ChannelGroupAdminScreen(
                             title = "Чёрный список",
                             value = "$blacklistCount",
                             testTag = "admin_row_blacklist",
-                            onClick = { navController.navigateSafe("channel_admin/$chatId/blacklist") }
+                            onClick = {
+                                if (canBanUsers) {
+                                    navController.navigateSafe("channel_admin/$chatId/blacklist")
+                                } else {
+                                    Toast.makeText(context, "Нет прав на блокировку пользователей", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
 
@@ -799,20 +842,22 @@ fun ChannelGroupAdminScreen(
                             }
                             HorizontalDivider(color = TelegramAdminDividerColor)
                         }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showDeleteConfirmDialog = true }
-                                .padding(horizontal = 16.dp, vertical = 15.dp)
-                                .testTag("delete_channel_button"),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Удалить канал",
-                                color = Color(0xFFFF5252),
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 16.sp
-                            )
+                        if (isCreator) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showDeleteConfirmDialog = true }
+                                    .padding(horizontal = 16.dp, vertical = 15.dp)
+                                    .testTag("delete_channel_button"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Удалить канал",
+                                    color = Color(0xFFFF5252),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 16.sp
+                                )
+                            }
                         }
                     }
                 }

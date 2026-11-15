@@ -302,7 +302,7 @@ interface QueuedMessageDao {
 }
 
 @androidx.room.TypeConverters(BotConverters::class)
-@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class], version = 25, exportSchema = false)
+@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class], version = 26, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun botDao(): BotDao
     abstract fun userDao(): UserDao

@@ -154,7 +154,15 @@ data class GroupMember(
     val canEditMessages: Boolean = false,
     val canDeleteMessages: Boolean = false,
     val canManageStreams: Boolean = false,
-    val canAddAdmins: Boolean = false
+    val canAddAdmins: Boolean = false,
+    val canChangeChannelInfo: Boolean = false,
+    val canPostStories: Boolean = false,
+    val canEditStories: Boolean = false,
+    val canDeleteStories: Boolean = false,
+    val canAccessDirectMessages: Boolean = false,
+    val canManageGreetings: Boolean = false,
+    val canManageInvites: Boolean = false,
+    val canBanUsers: Boolean = false
 )
 
 @Entity(
@@ -984,8 +992,50 @@ class AppViewModel(
                 val ownerId = active?.id ?: "123456789"
                 val ownerName = active?.displayName?.ifBlank { "Neo" } ?: "Neo"
                 listOf(
-                    GroupMember("c2", ownerId, ownerName, isAdmin = true, role = "creator", joinedAt = nowTs - 86400_000L * 30, canPostMessages = true, canEditMessages = true, canDeleteMessages = true, canManageStreams = true, canAddAdmins = true),
-                    GroupMember("c2", "u12", "Alex KuoteX", isAdmin = true, role = "admin", promotedBy = ownerName, joinedAt = nowTs - 86400_000L * 20, customTitle = "Редактор", canPostMessages = true, canEditMessages = true, canDeleteMessages = false, canManageStreams = true),
+                    GroupMember(
+                        chatId = "c2",
+                        userId = ownerId,
+                        userName = ownerName,
+                        isAdmin = true,
+                        role = "creator",
+                        joinedAt = nowTs - 86400_000L * 30,
+                        canPostMessages = true,
+                        canEditMessages = true,
+                        canDeleteMessages = true,
+                        canManageStreams = true,
+                        canAddAdmins = true,
+                        canChangeChannelInfo = true,
+                        canPostStories = true,
+                        canEditStories = true,
+                        canDeleteStories = true,
+                        canAccessDirectMessages = true,
+                        canManageGreetings = true,
+                        canManageInvites = true,
+                        canBanUsers = true
+                    ),
+                    GroupMember(
+                        chatId = "c2",
+                        userId = "u12",
+                        userName = "Alex KuoteX",
+                        isAdmin = true,
+                        role = "admin",
+                        promotedBy = ownerName,
+                        joinedAt = nowTs - 86400_000L * 20,
+                        customTitle = "Редактор",
+                        canPostMessages = true,
+                        canEditMessages = true,
+                        canDeleteMessages = true,
+                        canManageStreams = true,
+                        canAddAdmins = false,
+                        canChangeChannelInfo = true,
+                        canPostStories = true,
+                        canEditStories = false,
+                        canDeleteStories = false,
+                        canAccessDirectMessages = true,
+                        canManageGreetings = false,
+                        canManageInvites = true,
+                        canBanUsers = false
+                    ),
                     GroupMember("c2", "shop_bot", "Shop Bot", isAdmin = false, role = "bot", canReadMessages = false, canSendMessages = false, joinedAt = nowTs - 86400_000L * 15),
                     GroupMember("c2", "u11", "Alice Hacker", isAdmin = false, role = "subscriber", joinedAt = nowTs - 86400_000L * 10),
                     GroupMember("c2", "u13", "Elena Star", isAdmin = false, role = "subscriber", joinedAt = nowTs - 86400_000L * 7),
@@ -1000,7 +1050,27 @@ class AppViewModel(
                     val currentId = active?.id ?: "123456789"
                     val currentName = active?.displayName?.ifBlank { "Neo" } ?: "Neo"
                     val seeded = mutableListOf(
-                        GroupMember(chId, "u10", "Pavel Durov", isAdmin = true, role = "creator", joinedAt = nowTs - 86400_000L * 60, canPostMessages = true, canEditMessages = true, canDeleteMessages = true, canManageStreams = true, canAddAdmins = true),
+                        GroupMember(
+                            chatId = chId,
+                            userId = "u10",
+                            userName = "Pavel Durov",
+                            isAdmin = true,
+                            role = "creator",
+                            joinedAt = nowTs - 86400_000L * 60,
+                            canPostMessages = true,
+                            canEditMessages = true,
+                            canDeleteMessages = true,
+                            canManageStreams = true,
+                            canAddAdmins = true,
+                            canChangeChannelInfo = true,
+                            canPostStories = true,
+                            canEditStories = true,
+                            canDeleteStories = true,
+                            canAccessDirectMessages = true,
+                            canManageGreetings = true,
+                            canManageInvites = true,
+                            canBanUsers = true
+                        ),
                         GroupMember(chId, "u12", "Alex KuoteX", isAdmin = true, role = "admin", promotedBy = "Pavel Durov", joinedAt = nowTs - 86400_000L * 45, canPostMessages = true, canEditMessages = true),
                         GroupMember(chId, "u13", "Elena Star", isAdmin = true, role = "admin", promotedBy = "Pavel Durov", joinedAt = nowTs - 86400_000L * 30, canPostMessages = true),
                         GroupMember(chId, "shop_bot", "Shop Bot", isAdmin = false, role = "bot", canReadMessages = false, canSendMessages = false, joinedAt = nowTs - 86400_000L * 25),
@@ -1459,12 +1529,20 @@ class AppViewModel(
         chatId: String,
         userId: String,
         userName: String,
-        customTitle: String,
+        customTitle: String = "",
         canPost: Boolean,
         canEdit: Boolean,
         canDelete: Boolean,
         canManageStreams: Boolean,
         canAddAdmins: Boolean,
+        canChangeChannelInfo: Boolean = false,
+        canPostStories: Boolean = false,
+        canEditStories: Boolean = false,
+        canDeleteStories: Boolean = false,
+        canAccessDirectMessages: Boolean = false,
+        canManageGreetings: Boolean = false,
+        canManageInvites: Boolean = false,
+        canBanUsers: Boolean = false,
         promotedByName: String
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -1480,9 +1558,60 @@ class AppViewModel(
                 canEditMessages = canEdit,
                 canDeleteMessages = canDelete,
                 canManageStreams = canManageStreams,
-                canAddAdmins = canAddAdmins
+                canAddAdmins = canAddAdmins,
+                canChangeChannelInfo = canChangeChannelInfo,
+                canPostStories = canPostStories,
+                canEditStories = canEditStories,
+                canDeleteStories = canDeleteStories,
+                canAccessDirectMessages = canAccessDirectMessages,
+                canManageGreetings = canManageGreetings,
+                canManageInvites = canManageInvites,
+                canBanUsers = canBanUsers
             )
             repository.insertGroupMember(updated)
+        }
+    }
+
+    fun transferChannelOwnership(
+        chatId: String,
+        currentOwnerId: String,
+        newOwnerId: String,
+        newOwnerName: String
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentOwner = repository.getGroupMemberSync(chatId, currentOwnerId)
+            val newOwner = repository.getGroupMemberSync(chatId, newOwnerId)
+                ?: GroupMember(chatId = chatId, userId = newOwnerId, userName = newOwnerName)
+            if (currentOwner != null && currentOwner.userId != newOwnerId) {
+                repository.insertGroupMember(
+                    currentOwner.copy(
+                        isAdmin = true,
+                        role = "admin",
+                        promotedBy = newOwnerName
+                    )
+                )
+            }
+            repository.insertGroupMember(
+                newOwner.copy(
+                    userName = newOwnerName,
+                    isAdmin = true,
+                    role = "creator",
+                    promotedBy = null,
+                    canPostMessages = true,
+                    canEditMessages = true,
+                    canDeleteMessages = true,
+                    canManageStreams = true,
+                    canAddAdmins = true,
+                    canChangeChannelInfo = true,
+                    canPostStories = true,
+                    canEditStories = true,
+                    canDeleteStories = true,
+                    canAccessDirectMessages = true,
+                    canManageGreetings = true,
+                    canManageInvites = true,
+                    canBanUsers = true
+                )
+            )
         }
     }
 
@@ -1495,11 +1624,20 @@ class AppViewModel(
                     isAdmin = false,
                     role = "subscriber",
                     customTitle = "",
+                    promotedBy = null,
                     canPostMessages = false,
                     canEditMessages = false,
                     canDeleteMessages = false,
                     canManageStreams = false,
-                    canAddAdmins = false
+                    canAddAdmins = false,
+                    canChangeChannelInfo = false,
+                    canPostStories = false,
+                    canEditStories = false,
+                    canDeleteStories = false,
+                    canAccessDirectMessages = false,
+                    canManageGreetings = false,
+                    canManageInvites = false,
+                    canBanUsers = false
                 )
             )
         }
@@ -1961,7 +2099,15 @@ class AppViewModel(
                         canEditMessages = true,
                         canDeleteMessages = true,
                         canManageStreams = true,
-                        canAddAdmins = true
+                        canAddAdmins = true,
+                        canChangeChannelInfo = true,
+                        canPostStories = true,
+                        canEditStories = true,
+                        canDeleteStories = true,
+                        canAccessDirectMessages = true,
+                        canManageGreetings = true,
+                        canManageInvites = true,
+                        canBanUsers = true
                     )
                 )
                 val normalizedHandle = linkOrUsername.trim()

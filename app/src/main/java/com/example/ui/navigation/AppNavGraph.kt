@@ -81,6 +81,7 @@ object AppDestinations {
     const val CHANNEL_ADMIN_TYPE = "channel_admin/{chatId}/type"
     const val CHANNEL_ADMIN_DISCUSSION = "channel_admin/{chatId}/discussion"
     const val CHANNEL_ADMIN_ADMINS = "channel_admin/{chatId}/admins"
+    const val CHANNEL_ADMIN_RIGHTS = "channel_admin/{chatId}/admins/{userId}/rights"
     const val CHANNEL_ADMIN_SUBSCRIBERS = "channel_admin/{chatId}/subscribers"
     const val CHANNEL_ADMIN_REACTIONS = "channel_admin/{chatId}/reactions"
     const val CHANNEL_ADMIN_BLACKLIST = "channel_admin/{chatId}/blacklist"
@@ -106,6 +107,7 @@ object AppDestinations {
     fun channelAdminType(chatId: String) = "channel_admin/$chatId/type"
     fun channelAdminDiscussion(chatId: String) = "channel_admin/$chatId/discussion"
     fun channelAdminAdmins(chatId: String) = "channel_admin/$chatId/admins"
+    fun channelAdminRights(chatId: String, userId: String) = "channel_admin/$chatId/admins/$userId/rights"
     fun channelAdminSubscribers(chatId: String) = "channel_admin/$chatId/subscribers"
     fun channelAdminReactions(chatId: String) = "channel_admin/$chatId/reactions"
     fun channelAdminBlacklist(chatId: String) = "channel_admin/$chatId/blacklist"
@@ -628,6 +630,25 @@ fun MainAppNavGraph(
             if (chatId != null) {
                 ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
                     ChannelAdminsScreen(viewModel = viewModel, chatId = chatId, navController = navController)
+                }
+            }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_RIGHTS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            val userId = backStackEntry.arguments?.getString("userId")
+            if (chatId != null && userId != null) {
+                ChannelAdminGuard(
+                    viewModel = viewModel,
+                    chatId = chatId,
+                    navController = navController,
+                    requireFullAdminRights = true
+                ) { _, _, _ ->
+                    ChannelAdminRightsScreen(
+                        viewModel = viewModel,
+                        chatId = chatId,
+                        targetUserId = userId,
+                        navController = navController
+                    )
                 }
             }
         }

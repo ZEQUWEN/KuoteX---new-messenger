@@ -39,6 +39,48 @@ fun findCurrentChannelMember(
 }
 
 /**
+ * Returns true if the GroupMember has every channel administration right enabled
+ * (creator-equivalent powers).
+ */
+fun GroupMember.hasAllChannelPermissions(): Boolean {
+    return canChangeChannelInfo &&
+        canPostMessages &&
+        canEditMessages &&
+        canDeleteMessages &&
+        canPostStories &&
+        canEditStories &&
+        canDeleteStories &&
+        canAccessDirectMessages &&
+        canManageGreetings &&
+        canManageInvites &&
+        canManageStreams &&
+        canAddAdmins &&
+        canBanUsers
+}
+
+/**
+ * Returns true for the channel creator OR an administrator whose granted permissions
+ * are equivalent to those of the creator.
+ */
+fun hasFullChannelAdminRights(member: GroupMember): Boolean {
+    if (member.role == "creator") return true
+    if (!member.isAdmin && member.role != "admin") return false
+    return member.hasAllChannelPermissions()
+}
+
+/**
+ * Strict check determining whether the active user can open and configure
+ * administrator rights for other admins in the channel.
+ */
+fun canCurrentUserManageAdminRights(
+    members: List<GroupMember>,
+    activeAccount: UserAccount?
+): Boolean {
+    val member = findCurrentChannelMember(members, activeAccount) ?: return false
+    return hasFullChannelAdminRights(member)
+}
+
+/**
  * Strict role verification: only a member whose role is "creator" or "admin"
  * (or has isAdmin == true) is allowed to access channel/group administration.
  */
@@ -52,13 +94,15 @@ fun isChannelAdminOrCreator(
 
 /**
  * Route-level guard that verifies creator or admin permissions before rendering
- * any channel administration screen. Non-admin subscribers are immediately redirected back.
+ * any channel administration screen. Non-admin subscribers (or partial admins
+ * when [requireFullAdminRights] is true) are immediately redirected back.
  */
 @Composable
 fun ChannelAdminGuard(
     viewModel: AppViewModel,
     chatId: String,
     navController: NavController,
+    requireFullAdminRights: Boolean = false,
     content: @Composable (Chat?, List<GroupMember>, UserAccount?) -> Unit
 ) {
     val context = LocalContext.current
@@ -77,7 +121,11 @@ fun ChannelAdminGuard(
 
     val isReady = members != null && activeAccount != null
     val isAuthorized = if (members != null) {
-        isChannelAdminOrCreator(members, activeAccount)
+        if (requireFullAdminRights) {
+            canCurrentUserManageAdminRights(members, activeAccount)
+        } else {
+            isChannelAdminOrCreator(members, activeAccount)
+        }
     } else {
         false
     }
@@ -87,7 +135,11 @@ fun ChannelAdminGuard(
             hasRedirected = true
             Toast.makeText(
                 context,
-                "Доступ запрещён: требуются права администратора",
+                if (requireFullAdminRights) {
+                    "Настройка прав администраторов доступна только создателю и администраторам с полными правами"
+                } else {
+                    "Доступ запрещён: требуются права администратора"
+                },
                 Toast.LENGTH_SHORT
             ).show()
             navController.popBackStackSafe()

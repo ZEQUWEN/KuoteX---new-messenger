@@ -1,6 +1,8 @@
 package com.example.ui
 
 import com.example.ui.channel.ChannelCustomizationManager
+import com.example.ui.channel.canCurrentUserManageAdminRights
+import com.example.ui.channel.hasFullChannelAdminRights
 import com.example.ui.channel.isChannelAdminOrCreator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,6 +27,7 @@ class ChannelAdminRoleTest {
             GroupMember(chatId = "c2", userId = "u11", userName = "Alice", isAdmin = false, role = "subscriber")
         )
         assertTrue(isChannelAdminOrCreator(members, activeUser))
+        assertTrue(canCurrentUserManageAdminRights(members, activeUser))
     }
 
     @Test
@@ -37,19 +40,65 @@ class ChannelAdminRoleTest {
     }
 
     @Test
+    fun onlyCreatorOrFullRightsAdminCanManageOtherAdmins() {
+        val fullRightsAdmin = GroupMember(
+            chatId = "c5",
+            userId = "123456789",
+            userName = "Neo",
+            isAdmin = true,
+            role = "admin",
+            canPostMessages = true,
+            canEditMessages = true,
+            canDeleteMessages = true,
+            canManageStreams = true,
+            canAddAdmins = true,
+            canChangeChannelInfo = true,
+            canPostStories = true,
+            canEditStories = true,
+            canDeleteStories = true,
+            canAccessDirectMessages = true,
+            canManageGreetings = true,
+            canManageInvites = true,
+            canBanUsers = true
+        )
+        assertTrue(hasFullChannelAdminRights(fullRightsAdmin))
+        assertTrue(canCurrentUserManageAdminRights(listOf(fullRightsAdmin), activeUser))
+
+        // Partial admin missing story deletion or ban permission cannot configure admin rights
+        val partialAdmin = fullRightsAdmin.copy(canBanUsers = false)
+        assertFalse(hasFullChannelAdminRights(partialAdmin))
+        assertFalse(canCurrentUserManageAdminRights(listOf(partialAdmin), activeUser))
+
+        // Partial admin with only canAddAdmins=true but missing other creator powers is denied
+        val addOnlyAdmin = GroupMember(
+            chatId = "c5",
+            userId = "123456789",
+            userName = "Neo",
+            isAdmin = true,
+            role = "admin",
+            canAddAdmins = true
+        )
+        assertFalse(hasFullChannelAdminRights(addOnlyAdmin))
+        assertFalse(canCurrentUserManageAdminRights(listOf(addOnlyAdmin), activeUser))
+    }
+
+    @Test
     fun subscriberAndBotAreStrictlyDeniedAdminAccess() {
         val subscriberMembers = listOf(
             GroupMember(chatId = "c5", userId = "u10", userName = "Pavel Durov", isAdmin = true, role = "creator"),
             GroupMember(chatId = "c5", userId = "123456789", userName = "Neo", isAdmin = false, role = "subscriber")
         )
         assertFalse(isChannelAdminOrCreator(subscriberMembers, activeUser))
+        assertFalse(canCurrentUserManageAdminRights(subscriberMembers, activeUser))
 
         val botMembers = listOf(
             GroupMember(chatId = "c5", userId = "123456789", userName = "Neo", isAdmin = false, role = "bot")
         )
         assertFalse(isChannelAdminOrCreator(botMembers, activeUser))
+        assertFalse(canCurrentUserManageAdminRights(botMembers, activeUser))
         assertFalse(isChannelAdminOrCreator(emptyList(), activeUser))
         assertFalse(isChannelAdminOrCreator(subscriberMembers, null))
+        assertFalse(canCurrentUserManageAdminRights(subscriberMembers, null))
     }
 
     @Test

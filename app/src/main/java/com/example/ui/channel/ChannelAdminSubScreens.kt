@@ -109,6 +109,8 @@ import com.example.ui.Chat
 import com.example.ui.GroupMember
 import com.example.ui.UserAccount
 import com.example.ui.components.TelegramEmojiPickerBottomSheet
+import com.example.ui.navigateSafe
+import com.example.ui.navigation.AppDestinations
 import com.example.ui.popBackStackSafe
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1141,15 +1143,16 @@ fun ChannelAdminsScreen(
         mutableStateOf(customization.showAuthorProfiles)
     }
     var showAddAdminPicker by remember { mutableStateOf(false) }
-    var editingAdminMember by remember { mutableStateOf<GroupMember?>(null) }
+    var demoteTargetMember by remember { mutableStateOf<GroupMember?>(null) }
 
+    val canManageAdmins = canCurrentUserManageAdminRights(members, activeAccount)
     val ownerMember = members.find { it.role == "creator" }
         ?: members.find { it.isAdmin }
     val otherAdmins = members.filter {
         (it.isAdmin || it.role == "admin") && it.userId != ownerMember?.userId
     }
 
-    if (showAddAdminPicker) {
+    if (showAddAdminPicker && canManageAdmins) {
         val candidateMembers = members.filter { !it.isAdmin && it.role != "creator" }
         val existingIds = members.map { it.userId }.toSet()
         val extraContacts = contacts.filter { !existingIds.contains(it.id) }
@@ -1178,7 +1181,7 @@ fun ChannelAdminsScreen(
                         Surface(
                             onClick = {
                                 showAddAdminPicker = false
-                                editingAdminMember = m
+                                navController.navigateSafe(AppDestinations.channelAdminRights(chatId, m.userId))
                             },
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFF1F2633)
@@ -1202,13 +1205,7 @@ fun ChannelAdminsScreen(
                         Surface(
                             onClick = {
                                 showAddAdminPicker = false
-                                editingAdminMember = GroupMember(
-                                    chatId = chatId,
-                                    userId = c.id,
-                                    userName = c.name,
-                                    role = "subscriber",
-                                    isAdmin = false
-                                )
+                                navController.navigateSafe(AppDestinations.channelAdminRights(chatId, c.id))
                             },
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFF1F2633)
@@ -1238,44 +1235,41 @@ fun ChannelAdminsScreen(
         )
     }
 
-    editingAdminMember?.let { target ->
-        AdminRightsEditorDialog(
-            member = target,
-            onDismiss = { editingAdminMember = null },
-            onSave = { customTitle, canPost, canEdit, canDelete, canStreams, canAddAdmins ->
-                val promoterName = activeAccount?.displayName?.ifBlank { "Владелец" } ?: "Владелец"
-                viewModel.promoteOrUpdateChannelAdmin(
-                    chatId = chatId,
-                    userId = target.userId,
-                    userName = target.userName,
-                    customTitle = customTitle,
-                    canPost = canPost,
-                    canEdit = canEdit,
-                    canDelete = canDelete,
-                    canManageStreams = canStreams,
-                    canAddAdmins = canAddAdmins,
-                    promotedByName = promoterName
+    demoteTargetMember?.let { target ->
+        AlertDialog(
+            onDismissRequest = { demoteTargetMember = null },
+            containerColor = Color(0xFF171C26),
+            title = { Text("Разжаловать администратора?", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Удалить ${target.userName} из списка администраторов канала?",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 14.sp
                 )
-                ChannelCustomizationManager.recordAdminLog(
-                    chatId = chatId,
-                    title = "Обновлены права администратора",
-                    details = "${target.userName} назначен администратором"
-                )
-                Toast.makeText(context, "Права ${target.userName} сохранены", Toast.LENGTH_SHORT).show()
-                editingAdminMember = null
             },
-            onDemote = if (target.isAdmin && target.role != "creator") {
-                {
-                    viewModel.demoteChannelAdmin(chatId, target.userId)
-                    ChannelCustomizationManager.recordAdminLog(
-                        chatId = chatId,
-                        title = "Снятие прав администратора",
-                        details = "${target.userName} больше не администратор"
-                    )
-                    Toast.makeText(context, "${target.userName} разжалован", Toast.LENGTH_SHORT).show()
-                    editingAdminMember = null
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.demoteChannelAdmin(chatId, target.userId)
+                        ChannelCustomizationManager.recordAdminLog(
+                            chatId = chatId,
+                            title = "Снятие прав администратора",
+                            details = "${target.userName} удалён из администраторов"
+                        )
+                        Toast.makeText(context, "${target.userName} удалён из администраторов", Toast.LENGTH_SHORT).show()
+                        demoteTargetMember = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Разжаловать", color = Color.White, fontWeight = FontWeight.Bold)
                 }
-            } else null
+            },
+            dismissButton = {
+                TextButton(onClick = { demoteTargetMember = null }) {
+                    Text("Отмена", color = TelegramAdminPurple)
+                }
+            }
         )
     }
 
@@ -1338,33 +1332,38 @@ fun ChannelAdminsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        // + Добавить
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showAddAdminPicker = true }
-                                .padding(horizontal = 16.dp, vertical = 14.dp)
-                                .testTag("add_admin_button"),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.AddModerator,
-                                contentDescription = "Добавить администратора",
-                                tint = TelegramAdminPurple,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(Modifier.width(16.dp))
-                            Text(
-                                text = "Добавить",
-                                color = TelegramAdminPurple,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                        // + Добавить (only visible to creator or admins with creator-equivalent rights)
+                        if (canManageAdmins) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 52.dp)
+                                    .clickable { showAddAdminPicker = true }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                                    .testTag("add_admin_button"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AddModerator,
+                                    contentDescription = "Добавить администратора",
+                                    tint = TelegramAdminPurple,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(Modifier.width(16.dp))
+                                Text(
+                                    text = "Добавить",
+                                    color = TelegramAdminPurple,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
 
                         // Owner Row
                         if (ownerMember != null) {
-                            HorizontalDivider(modifier = Modifier.padding(start = 72.dp), color = TelegramAdminDividerColor)
+                            if (canManageAdmins) {
+                                HorizontalDivider(modifier = Modifier.padding(start = 72.dp), color = TelegramAdminDividerColor)
+                            }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1393,16 +1392,30 @@ fun ChannelAdminsScreen(
 
                         // Admin Rows
                         otherAdmins.forEach { admin ->
-                            var menuExpanded by remember { mutableStateOf(false) }
                             HorizontalDivider(modifier = Modifier.padding(start = 72.dp), color = TelegramAdminDividerColor)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .combinedClickable(
-                                        onClick = { editingAdminMember = admin },
-                                        onLongClick = { menuExpanded = true }
+                                    .then(
+                                        if (canManageAdmins) {
+                                            Modifier.combinedClickable(
+                                                onClick = {
+                                                    navController.navigateSafe(
+                                                        AppDestinations.channelAdminRights(chatId, admin.userId)
+                                                    )
+                                                },
+                                                onLongClick = {
+                                                    if (admin.userId != activeAccount?.id) {
+                                                        demoteTargetMember = admin
+                                                    }
+                                                }
+                                            )
+                                        } else {
+                                            Modifier
+                                        }
                                     )
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    .testTag("admin_row_${admin.userId}"),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 MemberCircleAvatar(name = admin.userName, seed = admin.userId, sizeDp = 42)
@@ -1416,41 +1429,33 @@ fun ChannelAdminsScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    val subtitleText = buildString {
+                                        append("Назначил(а): ${admin.promotedBy ?: "Владелец"}")
+                                        if (hasFullChannelAdminRights(admin)) {
+                                            append(" • Полные права")
+                                        }
+                                    }
                                     Text(
-                                        text = "Назначил(а): ${admin.promotedBy ?: "Владелец"}",
+                                        text = subtitleText,
                                         color = TelegramAdminCaptionColor,
                                         fontSize = 13.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                Box {
-                                    IconButton(onClick = { menuExpanded = true }) {
+                                if (canManageAdmins) {
+                                    IconButton(
+                                        onClick = {
+                                            navController.navigateSafe(
+                                                AppDestinations.channelAdminRights(chatId, admin.userId)
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("admin_more_${admin.userId}")
+                                    ) {
                                         Icon(
                                             imageVector = Icons.Filled.MoreVert,
-                                            contentDescription = "Действия",
+                                            contentDescription = "Настроить права администратора",
                                             tint = TelegramAdminCaptionColor
-                                        )
-                                    }
-                                    DropdownMenu(
-                                        expanded = menuExpanded,
-                                        onDismissRequest = { menuExpanded = false },
-                                        containerColor = Color(0xFF1F2633)
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Изменить права", color = Color.White) },
-                                            onClick = {
-                                                menuExpanded = false
-                                                editingAdminMember = admin
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Удалить из администраторов", color = Color(0xFFFF5252)) },
-                                            onClick = {
-                                                menuExpanded = false
-                                                viewModel.demoteChannelAdmin(chatId, admin.userId)
-                                                Toast.makeText(context, "${admin.userName} удалён из администраторов", Toast.LENGTH_SHORT).show()
-                                            }
                                         )
                                     }
                                 }
@@ -1460,7 +1465,11 @@ fun ChannelAdminsScreen(
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Вы можете назначать помощников для управления каналом. Чтобы удалить администратора, нажмите и удерживайте.",
+                    text = if (canManageAdmins) {
+                        "Вы можете назначать помощников для управления каналом. Чтобы удалить администратора, нажмите и удерживайте."
+                    } else {
+                        "Назначать и изменять права администраторов могут только владелец канала и администраторы с полными правами."
+                    },
                     color = TelegramAdminCaptionColor,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
@@ -1485,15 +1494,9 @@ fun ChannelAdminsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Подписывать сообщения", color = Color.White, fontSize = 16.sp)
-                            Switch(
+                            TelegramAdminPurpleSwitch(
                                 checked = signMessages,
-                                onCheckedChange = { signMessages = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = TelegramAdminPurpleStrong,
-                                    uncheckedThumbColor = Color(0xFF9EA5B1),
-                                    uncheckedTrackColor = Color(0xFF282E3A)
-                                )
+                                onCheckedChange = { signMessages = it }
                             )
                         }
 
@@ -1508,15 +1511,9 @@ fun ChannelAdminsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Показывать профили авторов", color = Color.White, fontSize = 16.sp)
-                            Switch(
+                            TelegramAdminPurpleSwitch(
                                 checked = showProfiles,
-                                onCheckedChange = { showProfiles = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = TelegramAdminPurpleStrong,
-                                    uncheckedThumbColor = Color(0xFF9EA5B1),
-                                    uncheckedTrackColor = Color(0xFF282E3A)
-                                )
+                                onCheckedChange = { showProfiles = it }
                             )
                         }
                     }
@@ -1534,92 +1531,6 @@ fun ChannelAdminsScreen(
     }
 }
 
-@Composable
-private fun AdminRightsEditorDialog(
-    member: GroupMember,
-    onDismiss: () -> Unit,
-    onSave: (String, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
-    onDemote: (() -> Unit)?
-) {
-    var customTitle by remember { mutableStateOf(member.customTitle) }
-    var canPost by remember { mutableStateOf(member.canPostMessages || !member.isAdmin) }
-    var canEdit by remember { mutableStateOf(member.canEditMessages) }
-    var canDelete by remember { mutableStateOf(member.canDeleteMessages) }
-    var canStreams by remember { mutableStateOf(member.canManageStreams) }
-    var canAddAdmins by remember { mutableStateOf(member.canAddAdmins) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF171C26),
-        title = { Text("Права: ${member.userName}", color = Color.White, fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = customTitle,
-                    onValueChange = { customTitle = it },
-                    label = { Text("Должность (напр. Редактор)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = TelegramAdminPurple
-                    )
-                )
-                AdminRightSwitchRow("Публикация сообщений", canPost) { canPost = it }
-                AdminRightSwitchRow("Изменение публикаций", canEdit) { canEdit = it }
-                AdminRightSwitchRow("Удаление публикаций", canDelete) { canDelete = it }
-                AdminRightSwitchRow("Управление трансляциями", canStreams) { canStreams = it }
-                AdminRightSwitchRow("Добавление администраторов", canAddAdmins) { canAddAdmins = it }
-
-                if (onDemote != null) {
-                    Spacer(Modifier.height(4.dp))
-                    TextButton(
-                        onClick = onDemote,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Снять с должности администратора", color = Color(0xFFFF5252), fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onSave(customTitle.trim(), canPost, canEdit, canDelete, canStreams, canAddAdmins) },
-                colors = ButtonDefaults.buttonColors(containerColor = TelegramAdminPurpleStrong)
-            ) {
-                Text("Сохранить")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена", color = TelegramAdminPurple)
-            }
-        }
-    )
-}
-
-@Composable
-private fun AdminRightSwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onChange(!checked) },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(label, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Switch(
-            checked = checked,
-            onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = TelegramAdminPurpleStrong
-            )
-        )
-    }
-}
-
 /**
  * 4. Channel Subscribers Screen ("Подписчики" — matches Screenshot 161248)
  */
@@ -1631,9 +1542,11 @@ fun ChannelSubscribersScreen(
 ) {
     val context = LocalContext.current
     val members by viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList())
+    val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
     val contacts by viewModel.contacts.collectAsStateWithLifecycle()
     val customizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val customization = customizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
+    val canManageAdmins = canCurrentUserManageAdminRights(members, activeAccount)
 
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -1854,20 +1767,9 @@ fun ChannelSubscribersScreen(
                                     subtitle = if (m.role == "creator" || m.role == "admin") "в сети" else "был(а) недавно",
                                     subtitleColor = if (m.role == "creator" || m.role == "admin") TelegramAdminPurple else TelegramAdminCaptionColor,
                                     showMenu = m.role != "creator",
+                                    canPromoteToAdmin = canManageAdmins,
                                     onPromote = {
-                                        viewModel.promoteOrUpdateChannelAdmin(
-                                            chatId = chatId,
-                                            userId = m.userId,
-                                            userName = m.userName,
-                                            customTitle = "",
-                                            canPost = true,
-                                            canEdit = true,
-                                            canDelete = true,
-                                            canManageStreams = true,
-                                            canAddAdmins = false,
-                                            promotedByName = "Вы"
-                                        )
-                                        Toast.makeText(context, "${m.userName} назначен администратором", Toast.LENGTH_SHORT).show()
+                                        navController.navigateSafe(AppDestinations.channelAdminRights(chatId, m.userId))
                                     },
                                     onBan = {
                                         ChannelCustomizationManager.banUser(chatId, m.userId, m.userName)
@@ -1941,20 +1843,9 @@ fun ChannelSubscribersScreen(
                                     subtitle = "участник с ${formatSubscriberJoinedAt(m.joinedAt)}",
                                     subtitleColor = TelegramAdminCaptionColor,
                                     showMenu = true,
+                                    canPromoteToAdmin = canManageAdmins,
                                     onPromote = {
-                                        viewModel.promoteOrUpdateChannelAdmin(
-                                            chatId = chatId,
-                                            userId = m.userId,
-                                            userName = m.userName,
-                                            customTitle = "",
-                                            canPost = true,
-                                            canEdit = true,
-                                            canDelete = true,
-                                            canManageStreams = true,
-                                            canAddAdmins = false,
-                                            promotedByName = "Вы"
-                                        )
-                                        Toast.makeText(context, "${m.userName} назначен администратором", Toast.LENGTH_SHORT).show()
+                                        navController.navigateSafe(AppDestinations.channelAdminRights(chatId, m.userId))
                                     },
                                     onBan = {
                                         ChannelCustomizationManager.banUser(chatId, m.userId, m.userName)
@@ -1996,6 +1887,7 @@ private fun SubscriberMemberRow(
     subtitleColor: Color,
     showMenu: Boolean,
     isBot: Boolean = false,
+    canPromoteToAdmin: Boolean = true,
     onPromote: () -> Unit,
     onBan: () -> Unit,
     onRemove: () -> Unit
@@ -2050,18 +1942,20 @@ private fun SubscriberMemberRow(
                     onDismissRequest = { menuExpanded = false },
                     containerColor = Color(0xFF1F2633)
                 ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                if (isBot) "Переключить доступ" else "Назначить администратором",
-                                color = Color.White
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onPromote()
-                        }
-                    )
+                    if (isBot || canPromoteToAdmin) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (isBot) "Переключить доступ" else if (member.isAdmin || member.role == "admin") "Настроить права" else "Назначить администратором",
+                                    color = Color.White
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onPromote()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Добавить в чёрный список", color = Color(0xFFFF8A65)) },
                         onClick = {
