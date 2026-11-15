@@ -136,4 +136,47 @@ class ChannelAdminRoleTest {
         assertFalse(reactionsUpdated.paidStarReactionsEnabled)
         assertEquals(listOf("🔥", "❤️"), reactionsUpdated.availableReactions)
     }
+
+    @Test
+    fun greetingMessagesCrudAndNewMemberDeliveryWork() {
+        val testChatId = "test_channel_greetings"
+        ChannelCustomizationManager.initializeCreatedChannel(
+            chatId = testChatId,
+            description = "Greetings channel",
+            isPublic = true,
+            inviteLink = "t.me/greetings",
+            avatarUrl = null
+        )
+
+        val added = ChannelCustomizationManager.addGreetingMessage(
+            chatId = testChatId,
+            text = "Вы попали на официальный канал KuoteX."
+        )
+        var customization = ChannelCustomizationManager.getCustomization(testChatId)
+        assertTrue(customization.autoGreetingEnabled)
+        assertEquals(1, ChannelCustomizationManager.getEffectiveGreetingMessages(customization).size)
+
+        // New participant joining receives greeting once
+        val deliveredFirst = ChannelCustomizationManager.consumeGreetingMessagesForNewMember(testChatId, "user_new_1")
+        assertEquals(1, deliveredFirst.size)
+        assertEquals("Вы попали на официальный канал KuoteX.", deliveredFirst.first().text)
+        assertTrue(ChannelCustomizationManager.consumeGreetingMessagesForNewMember(testChatId, "user_new_1").isEmpty())
+
+        // Editing message updates text cleanly
+        ChannelCustomizationManager.updateGreetingMessage(testChatId, added.id, "Добро пожаловать в KuoteX!")
+        customization = ChannelCustomizationManager.getCustomization(testChatId)
+        assertEquals("Добро пожаловать в KuoteX!", ChannelCustomizationManager.getEffectiveGreetingMessages(customization).first().text)
+
+        // Adding another message resets delivery state so members see updates
+        val second = ChannelCustomizationManager.addGreetingMessage(testChatId, "Читайте закрепленные правила.")
+        assertEquals(2, ChannelCustomizationManager.getEffectiveGreetingMessages(ChannelCustomizationManager.getCustomization(testChatId)).size)
+        assertEquals(2, ChannelCustomizationManager.consumeGreetingMessagesForNewMember(testChatId, "user_new_1").size)
+
+        // Deleting all messages disables autoGreetingEnabled
+        ChannelCustomizationManager.deleteGreetingMessage(testChatId, added.id)
+        ChannelCustomizationManager.deleteGreetingMessage(testChatId, second.id)
+        customization = ChannelCustomizationManager.getCustomization(testChatId)
+        assertFalse(customization.autoGreetingEnabled)
+        assertTrue(ChannelCustomizationManager.getEffectiveGreetingMessages(customization).isEmpty())
+    }
 }

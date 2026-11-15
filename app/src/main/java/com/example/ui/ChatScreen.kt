@@ -432,6 +432,17 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     var showCreatePollDialog by remember { mutableStateOf(false) }
     val isChannelOrGroupAdmin = com.example.ui.channel.isChannelAdminOrCreator(groupMembers, activeAccount)
     val isCopyingRestricted = chat.isChannel && channelCustomization.restrictSavingContent && !isChannelOrGroupAdmin
+    val currentChannelMember = com.example.ui.channel.findCurrentChannelMember(groupMembers, activeAccount)
+    val channelGreetingMessages = remember(channelCustomization) {
+        ChannelCustomizationManager.getEffectiveGreetingMessages(channelCustomization)
+    }
+    val showGreetingInChat = (chat.isChannel || chat.isGroup) && !isChannelOrGroupAdmin && !isSearchMode && channelGreetingMessages.isNotEmpty()
+    LaunchedEffect(chatId, activeAccount?.id, currentChannelMember?.userId, channelGreetingMessages.size) {
+        val accountId = activeAccount?.id
+        if (!accountId.isNullOrBlank() && showGreetingInChat && currentChannelMember != null) {
+            ChannelCustomizationManager.consumeGreetingMessagesForNewMember(chatId, accountId)
+        }
+    }
     
     Scaffold(
         containerColor = Color.Transparent,
@@ -956,6 +967,35 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            if (currentChannelMember == null) {
+                                Button(
+                                    onClick = {
+                                        viewModel.subscribeToChannel(chatId)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            if (channelGreetingMessages.isNotEmpty()) {
+                                                "Вы подписались на канал"
+                                            } else {
+                                                "Подписка оформлена"
+                                            },
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .semantics { testTag = "channel_subscribe_button" }
+                                ) {
+                                    Text(
+                                        text = "Подписаться",
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
                             TextButton(
                                 onClick = {
                                     viewModel.toggleMute(chatId, !chat.isMuted)
@@ -2910,8 +2950,91 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                 }
                             }
                         }
-                        }
                     }
+                    }
+
+                        if (showGreetingInChat) {
+                            item(key = "channel_welcome_header") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 6.dp, bottom = 2.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color(0xFF1A2029).copy(alpha = 0.88f)
+                                    ) {
+                                        Text(
+                                            text = "Приветствие канала",
+                                            color = Color(0xFFECEFF4),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            items(channelGreetingMessages, key = { "welcome_${it.id}" }) { greetingMsg ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .semantics { testTag = "chat_channel_greeting_bubble_${greetingMsg.id}" }
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(
+                                            topStart = 18.dp,
+                                            topEnd = 18.dp,
+                                            bottomEnd = 18.dp,
+                                            bottomStart = 6.dp
+                                        ),
+                                        color = Color(0xFF1B212C),
+                                        modifier = Modifier.widthIn(min = 160.dp, max = 315.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                            ) {
+                                                Text(
+                                                    text = chat.title,
+                                                    color = Color(0xFFED9E45),
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                                    fontSize = 14.sp
+                                                )
+                                                val emojiStatus = channelCustomization.emojiStatus
+                                                if (!emojiStatus.isNullOrBlank()) {
+                                                    Text(text = emojiStatus, fontSize = 13.sp)
+                                                }
+                                            }
+                                            if (!greetingMsg.mediaPath.isNullOrBlank()) {
+                                                Spacer(Modifier.height(6.dp))
+                                                coil.compose.AsyncImage(
+                                                    model = coil.request.ImageRequest.Builder(context)
+                                                        .data(greetingMsg.mediaPath)
+                                                        .crossfade(true)
+                                                        .build(),
+                                                    contentDescription = "Изображение приветствия",
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .heightIn(min = 120.dp, max = 210.dp)
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                )
+                                            }
+                                            if (greetingMsg.text.isNotBlank()) {
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(
+                                                    text = greetingMsg.text,
+                                                    color = Color(0xFFECEFF4),
+                                                    fontSize = 15.5.sp,
+                                                    lineHeight = 20.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                 }
                 
                 androidx.compose.animation.AnimatedVisibility(

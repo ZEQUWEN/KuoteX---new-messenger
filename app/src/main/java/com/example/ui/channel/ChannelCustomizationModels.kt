@@ -233,7 +233,9 @@ data class ChannelCustomization(
     val maxReactionsPerPost: Int = 11,
     val paidStarReactionsEnabled: Boolean = true,
     val autoGreetingEnabled: Boolean = false,
-    val autoGreetingText: String = "Новое приветствие\nПриветствие будет автоматически отправляться новым участникам.",
+    val autoGreetingText: String = "",
+    val greetingMessages: List<ChannelGreetingMessage> = emptyList(),
+    val greetingDeliveredUserIds: Set<String> = emptySet(),
     val restrictSavingContent: Boolean = false,
     val isPublic: Boolean = true,
     val autoDeletePeriod: String? = null,
@@ -242,6 +244,14 @@ data class ChannelCustomization(
 ) {
     val wallpaperId: String get() = chatWallpaperId
 }
+
+data class ChannelGreetingMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val text: String,
+    val mediaPath: String? = null,
+    val mediaType: String? = null,
+    val timestamp: Long = System.currentTimeMillis()
+)
 
 data class BlacklistedUser(
     val userId: String,

@@ -703,10 +703,15 @@ fun ChannelGroupAdminScreen(
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
 
+                        val effectiveGreetings = ChannelCustomizationManager.getEffectiveGreetingMessages(customization)
                         AdminMenuRow(
                             icon = Icons.Filled.WavingHand,
                             title = "Приветствие",
-                            value = if (customization.autoGreetingEnabled) "Вкл." else "Выкл.",
+                            value = when {
+                                effectiveGreetings.isNotEmpty() -> "${effectiveGreetings.size} сообщ."
+                                customization.autoGreetingEnabled -> "Вкл."
+                                else -> "Выкл."
+                            },
                             testTag = "admin_row_greeting",
                             onClick = {
                                 if (canManageGreetings) {

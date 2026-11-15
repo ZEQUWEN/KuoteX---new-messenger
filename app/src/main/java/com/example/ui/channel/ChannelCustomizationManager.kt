@@ -377,9 +377,17 @@ object ChannelCustomizationManager {
     fun updateAutoGreeting(chatId: String, enabled: Boolean, greetingText: String) {
         customizations.update { map ->
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            val updatedMessages = when {
+                !enabled -> emptyList()
+                greetingText.isNotBlank() && current.greetingMessages.isEmpty() -> listOf(
+                    ChannelGreetingMessage(text = greetingText.trim())
+                )
+                else -> current.greetingMessages
+            }
             map + (chatId to current.copy(
-                autoGreetingEnabled = enabled,
-                autoGreetingText = greetingText
+                autoGreetingEnabled = enabled && (updatedMessages.isNotEmpty() || greetingText.isNotBlank()),
+                autoGreetingText = greetingText,
+                greetingMessages = updatedMessages
             ))
         }
         logAdminAction(
@@ -387,6 +395,103 @@ object ChannelCustomizationManager {
             title = "Приветственное сообщение",
             details = if (enabled) "Автоприветствие включено" else "Автоприветствие отключено"
         )
+    }
+
+    fun addGreetingMessage(
+        chatId: String,
+        text: String,
+        mediaPath: String? = null,
+        mediaType: String? = null
+    ): ChannelGreetingMessage {
+        val trimmed = text.trim()
+        val msg = ChannelGreetingMessage(
+            text = trimmed,
+            mediaPath = mediaPath,
+            mediaType = mediaType,
+            timestamp = System.currentTimeMillis()
+        )
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            val updatedList = current.greetingMessages + msg
+            map + (chatId to current.copy(
+                autoGreetingEnabled = true,
+                autoGreetingText = updatedList.joinToString("\n\n") { it.text }.trim(),
+                greetingMessages = updatedList,
+                greetingDeliveredUserIds = emptySet()
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Добавлено приветственное сообщение",
+            details = trimmed.ifBlank { "Медиа-приветствие" }.take(60)
+        )
+        return msg
+    }
+
+    fun updateGreetingMessage(chatId: String, messageId: String, newText: String) {
+        val trimmed = newText.trim()
+        if (trimmed.isBlank()) return
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            val updatedList = current.greetingMessages.map { msg ->
+                if (msg.id == messageId) msg.copy(text = trimmed) else msg
+            }
+            map + (chatId to current.copy(
+                autoGreetingEnabled = updatedList.isNotEmpty(),
+                autoGreetingText = updatedList.joinToString("\n\n") { it.text }.trim(),
+                greetingMessages = updatedList
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Изменено приветственное сообщение",
+            details = trimmed.take(60)
+        )
+    }
+
+    fun deleteGreetingMessage(chatId: String, messageId: String) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            val updatedList = current.greetingMessages.filterNot { it.id == messageId }
+            map + (chatId to current.copy(
+                autoGreetingEnabled = updatedList.isNotEmpty(),
+                autoGreetingText = updatedList.joinToString("\n\n") { it.text }.trim(),
+                greetingMessages = updatedList
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Удалено приветственное сообщение",
+            details = "Сообщение приветствия удалено"
+        )
+    }
+
+    fun getEffectiveGreetingMessages(customization: ChannelCustomization): List<ChannelGreetingMessage> {
+        if (!customization.autoGreetingEnabled) return emptyList()
+        if (customization.greetingMessages.isNotEmpty()) return customization.greetingMessages
+        val fallback = customization.autoGreetingText.trim()
+        return if (fallback.isNotBlank()) {
+            listOf(ChannelGreetingMessage(id = "legacy_${customization.chatId}", text = fallback))
+        } else {
+            emptyList()
+        }
+    }
+
+    fun consumeGreetingMessagesForNewMember(chatId: String, userId: String): List<ChannelGreetingMessage> {
+        var toDeliver: List<ChannelGreetingMessage> = emptyList()
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            val effective = getEffectiveGreetingMessages(current)
+            if (effective.isNotEmpty() && !current.greetingDeliveredUserIds.contains(userId)) {
+                toDeliver = effective
+                map + (chatId to current.copy(
+                    greetingDeliveredUserIds = current.greetingDeliveredUserIds + userId
+                ))
+            } else {
+                map
+            }
+        }
+        return toDeliver
     }
 
     fun updateAuthorProfiles(chatId: String, showProfiles: Boolean) {

@@ -696,7 +696,7 @@ fun MainAppNavGraph(
             val chatId = backStackEntry.arguments?.getString("chatId")
             if (chatId != null) {
                 ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
-                    ChannelGreetingScreen(chatId = chatId, navController = navController)
+                    ChannelGreetingScreen(viewModel = viewModel, chatId = chatId, navController = navController)
                 }
             }
         }

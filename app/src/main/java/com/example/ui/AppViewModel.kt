@@ -1522,6 +1522,31 @@ class AppViewModel(
                     canEditMessages = isAdmin
                 )
             )
+            if (!isAdmin && role == "subscriber") {
+                com.example.ui.channel.ChannelCustomizationManager.consumeGreetingMessagesForNewMember(chatId, userId)
+            }
+        }
+    }
+
+    fun subscribeToChannel(chatId: String) {
+        val account = activeAccount.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getGroupMemberSync(chatId, account.id)
+            if (existing == null) {
+                repository.insertGroupMember(
+                    com.example.ui.GroupMember(
+                        chatId = chatId,
+                        userId = account.id,
+                        userName = account.displayName.ifBlank { account.username },
+                        isAdmin = false,
+                        role = "subscriber",
+                        joinedAt = System.currentTimeMillis(),
+                        canPostMessages = false,
+                        canEditMessages = false
+                    )
+                )
+            }
+            com.example.ui.channel.ChannelCustomizationManager.consumeGreetingMessagesForNewMember(chatId, account.id)
         }
     }
 
