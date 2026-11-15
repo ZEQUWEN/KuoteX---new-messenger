@@ -628,11 +628,29 @@ fun ChannelGroupAdminScreen(
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
 
+                        val linkedGroup = customization.discussionChatId?.let { linkedId ->
+                            chats.find { it.id == linkedId && it.isGroup }
+                        }
+                        val linkedGroupCustom = linkedGroup?.id?.let { customizationsMap[it] }
                         AdminMenuRow(
                             icon = Icons.Filled.ChatBubbleOutline,
                             title = "Обсуждение",
-                            value = customization.discussionChatTitle.ifBlank { "Добавить" },
+                            value = if (linkedGroup != null) linkedGroup.title else "Добавить",
                             testTag = "admin_row_discussion",
+                            trailingContent = if (linkedGroup != null) {
+                                {
+                                    LinkedGroupAvatar(
+                                        groupId = linkedGroup.id,
+                                        groupTitle = linkedGroup.title,
+                                        avatarUrl = linkedGroupCustom?.avatarUrl,
+                                        avatarSize = 32.dp,
+                                        testTag = "admin_linked_group_avatar",
+                                        onClick = {
+                                            navController.navigateSafe("chat/${linkedGroup.id}")
+                                        }
+                                    )
+                                }
+                            } else null,
                             onClick = {
                                 if (canChangeInfo) {
                                     navController.navigateSafe("channel_admin/$chatId/discussion")
@@ -909,6 +927,7 @@ private fun AdminMenuRow(
     valueColor: Color = TelegramAdminPurple,
     iconTint: Color = Color.White.copy(alpha = 0.65f),
     testTag: String = "",
+    trailingContent: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
     Row(
@@ -942,6 +961,11 @@ private fun AdminMenuRow(
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
+        }
+
+        if (trailingContent != null) {
+            trailingContent()
+            Spacer(Modifier.width(6.dp))
         }
 
         if (value.isNotEmpty()) {

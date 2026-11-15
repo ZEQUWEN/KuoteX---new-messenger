@@ -424,6 +424,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     var showAttachmentMenu by remember { mutableStateOf(false) }
     
     val channelCustomizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
+    val allCustomizationsMap by ChannelCustomizationManager.getAllCustomizationsFlow().collectAsState()
     val channelCustomization = channelCustomizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
     val channelPalette = TelegramProfilePalettes.getPalette(channelCustomization.profileColorId)
     val channelWallpaper = TelegramWallpapers.getWallpaper(channelCustomization.wallpaperId)
@@ -433,6 +434,22 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     val isChannelOrGroupAdmin = com.example.ui.channel.isChannelAdminOrCreator(groupMembers, activeAccount)
     val isCopyingRestricted = chat.isChannel && channelCustomization.restrictSavingContent && !isChannelOrGroupAdmin
     val currentChannelMember = com.example.ui.channel.findCurrentChannelMember(groupMembers, activeAccount)
+    val linkedDiscussionGroup = remember(chat.isChannel, channelCustomization.discussionChatId, chats) {
+        if (chat.isChannel) {
+            channelCustomization.discussionChatId?.let { linkedId ->
+                chats.find { it.id == linkedId && it.isGroup }
+            }
+        } else null
+    }
+    val linkedDiscussionGroupCustom = linkedDiscussionGroup?.id?.let { allCustomizationsMap[it] }
+    val parentLinkedChannelCustom = remember(chat.isGroup, chatId, allCustomizationsMap) {
+        if (chat.isGroup) allCustomizationsMap.values.firstOrNull { it.discussionChatId == chatId } else null
+    }
+    val parentLinkedChannel = remember(parentLinkedChannelCustom, chats) {
+        parentLinkedChannelCustom?.let { custom -> chats.find { it.id == custom.chatId && it.isChannel } }
+    }
+    var groupSendAsMode by remember(chatId) { mutableStateOf("PERSONAL") } // "PERSONAL", "GROUP", "CHANNEL"
+    var showSendAsMenu by remember { mutableStateOf(false) }
     val channelGreetingMessages = remember(channelCustomization) {
         ChannelCustomizationManager.getEffectiveGreetingMessages(channelCustomization)
     }
@@ -588,7 +605,11 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     } else if (chat.isChannel) {
                         channelSubText
                     } else if (chat.isGroup) {
-                        groupSubText
+                        if (parentLinkedChannel != null) {
+                            if (channelCustomization.isPublic) "обсуждение · $groupSubText" else "частная группа · $groupSubText"
+                        } else {
+                            groupSubText
+                        }
                     } else {
                         when {
                             isTyping -> "печатает..."
@@ -702,6 +723,20 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     }
                 },
                 actions = {
+                    if (chat.isChannel && linkedDiscussionGroup != null) {
+                        com.example.ui.channel.LinkedGroupAvatar(
+                            groupId = linkedDiscussionGroup.id,
+                            groupTitle = linkedDiscussionGroup.title,
+                            avatarUrl = linkedDiscussionGroupCustom?.avatarUrl,
+                            avatarSize = 34.dp,
+                            testTag = "channel_topbar_linked_group_avatar",
+                            onClick = {
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                                navController.navigate("chat/${linkedDiscussionGroup.id}")
+                            }
+                        )
+                    }
                     if (!chat.isBot && !chat.isGroup && !chat.isChannel) {
                         IconButton(onClick = { navController.navigate("call/${chat.id}?isVideo=false") }) {
                             Icon(Icons.Filled.Call, contentDescription = "Голосовой звонок")
@@ -1023,30 +1058,30 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                 )
                             }
 
-                            if (channelCustomization.discussionChatTitle.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = {
-                                        val linkedId = channelCustomization.discussionChatId
-                                        if (linkedId != null) {
-                                            navController.navigate("chat/$linkedId")
-                                        } else {
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Обсуждение: ${channelCustomization.discussionChatTitle}",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.semantics { testTag = "channel_subscriber_discuss_button" }
+                            if (linkedDiscussionGroup != null) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.ChatBubbleOutline,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
+                                    com.example.ui.channel.LinkedGroupAvatar(
+                                        groupId = linkedDiscussionGroup.id,
+                                        groupTitle = linkedDiscussionGroup.title,
+                                        avatarUrl = linkedDiscussionGroupCustom?.avatarUrl,
+                                        avatarSize = 34.dp,
+                                        testTag = "channel_subscriber_linked_group_avatar",
+                                        onClick = {
+                                            navController.navigate("chat/${linkedDiscussionGroup.id}")
+                                        }
                                     )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Обсудить")
+                                    OutlinedButton(
+                                        onClick = {
+                                            navController.navigate("chat/${linkedDiscussionGroup.id}")
+                                        },
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.semantics { testTag = "channel_subscriber_discuss_button" }
+                                    ) {
+                                        Text("Обсудить")
+                                    }
                                 }
                             }
                         }
@@ -1237,7 +1272,88 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                         ) {
                     var attachmentMenuExpanded by remember { mutableStateOf(false) }
                     var botMenuExpanded by remember { mutableStateOf(false) }
-                    
+
+                    if (chat.isChannel && linkedDiscussionGroup != null) {
+                        com.example.ui.channel.LinkedGroupAvatar(
+                            groupId = linkedDiscussionGroup.id,
+                            groupTitle = linkedDiscussionGroup.title,
+                            avatarUrl = linkedDiscussionGroupCustom?.avatarUrl,
+                            avatarSize = 32.dp,
+                            testTag = "channel_admin_linked_group_avatar",
+                            onClick = {
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                                navController.navigate("chat/${linkedDiscussionGroup.id}")
+                            }
+                        )
+                    } else if (chat.isGroup && parentLinkedChannel != null && isChannelOrGroupAdmin) {
+                        Box {
+                            val currentIdentityTitle = when (groupSendAsMode) {
+                                "GROUP" -> chat.title
+                                "CHANNEL" -> parentLinkedChannel.title
+                                else -> activeAccount?.displayName?.ifBlank { "Вы" } ?: "Вы"
+                            }
+                            val currentIdentityId = when (groupSendAsMode) {
+                                "GROUP" -> chat.id
+                                "CHANNEL" -> parentLinkedChannel.id
+                                else -> activeAccount?.id ?: "me"
+                            }
+                            com.example.ui.channel.LinkedGroupAvatar(
+                                groupId = currentIdentityId,
+                                groupTitle = currentIdentityTitle,
+                                avatarUrl = when (groupSendAsMode) {
+                                    "GROUP" -> channelCustomization.avatarUrl
+                                    "CHANNEL" -> parentLinkedChannelCustom?.avatarUrl
+                                    else -> activeAccount?.profilePicUrl
+                                },
+                                avatarSize = 32.dp,
+                                testTag = "group_send_as_avatar_button",
+                                onClick = { showSendAsMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = showSendAsMenu,
+                                onDismissRequest = { showSendAsMenu = false }
+                            ) {
+                                Text(
+                                    text = "Написать от имени...",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("${chat.title} (Анонимно)") },
+                                    onClick = {
+                                        groupSendAsMode = "GROUP"
+                                        showSendAsMenu = false
+                                    },
+                                    trailingIcon = if (groupSendAsMode == "GROUP") {
+                                        { Icon(Icons.Filled.Check, contentDescription = "Выбрано") }
+                                    } else null
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("${parentLinkedChannel.title} (Канал)") },
+                                    onClick = {
+                                        groupSendAsMode = "CHANNEL"
+                                        showSendAsMenu = false
+                                    },
+                                    trailingIcon = if (groupSendAsMode == "CHANNEL") {
+                                        { Icon(Icons.Filled.Check, contentDescription = "Выбрано") }
+                                    } else null
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(activeAccount?.displayName?.ifBlank { "Личный профиль" } ?: "Личный профиль") },
+                                    onClick = {
+                                        groupSendAsMode = "PERSONAL"
+                                        showSendAsMenu = false
+                                    },
+                                    trailingIcon = if (groupSendAsMode == "PERSONAL") {
+                                        { Icon(Icons.Filled.Check, contentDescription = "Выбрано") }
+                                    } else null
+                                )
+                            }
+                        }
+                    }
+
                     if (chat.isBot || chat.title.contains("BotFather", ignoreCase = true)) {
                         Box {
                             IconButton(onClick = { botMenuExpanded = true }) {
@@ -1398,7 +1514,15 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                         OutlinedTextField(
                             value = inputText,
                             onValueChange = { inputText = it },
-                            placeholder = { Text("Сообщение...") },
+                            placeholder = {
+                                Text(
+                                    when {
+                                        chat.isGroup && parentLinkedChannel != null && groupSendAsMode == "GROUP" -> "Анонимное сооб..."
+                                        chat.isGroup && parentLinkedChannel != null && groupSendAsMode == "CHANNEL" -> "От имени канала..."
+                                        else -> "Сообщение..."
+                                    }
+                                )
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .semantics {

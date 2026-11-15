@@ -81,6 +81,12 @@ fun ChannelProfileScreen(
     val customizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val customization = customizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
     val palette = TelegramProfilePalettes.getPalette(customization.profileColorId)
+    val linkedGroup = remember(chats, customization.discussionChatId) {
+        customization.discussionChatId?.let { linkedId ->
+            chats.find { it.id == linkedId && it.isGroup }
+        }
+    }
+    val linkedGroupCustomization = linkedGroup?.id?.let { customizationsMap[it] }
 
     val members by viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList())
     val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
@@ -898,17 +904,43 @@ fun ChannelProfileScreen(
                                 }
                             )
 
-                            TelegramProfileActionButton(
-                                icon = Icons.Filled.ChatBubbleOutline,
-                                title = "Обсуждение",
-                                onClick = {
-                                    if (customization.discussionChatId != null) {
-                                        navController.navigateSafe("chat/${customization.discussionChatId}")
-                                    } else {
-                                        Toast.makeText(context, "Переход в группу обсуждения: ${customization.discussionChatTitle}", Toast.LENGTH_SHORT).show()
-                                    }
+                            if (linkedGroup != null) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            navController.navigateSafe("chat/${linkedGroup.id}")
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    LinkedGroupAvatar(
+                                        groupId = linkedGroup.id,
+                                        groupTitle = linkedGroup.title,
+                                        avatarUrl = linkedGroupCustomization?.avatarUrl,
+                                        avatarSize = 46.dp,
+                                        testTag = "channel_profile_linked_group_avatar",
+                                        onClick = {
+                                            navController.navigateSafe("chat/${linkedGroup.id}")
+                                        }
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = "Обсуждение",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 11.sp
+                                    )
                                 }
-                            )
+                            } else {
+                                TelegramProfileActionButton(
+                                    icon = Icons.Filled.ChatBubbleOutline,
+                                    title = "Обсуждение",
+                                    onClick = {
+                                        navController.navigateSafe("channel_admin/$chatId/discussion")
+                                    }
+                                )
+                            }
 
                             TelegramProfileActionButton(
                                 icon = Icons.Filled.AddCircleOutline,
@@ -999,6 +1031,51 @@ fun ChannelProfileScreen(
                                     contentDescription = "QR-код",
                                     tint = Color(0xFF2AABEE),
                                     modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+
+                        if (linkedGroup != null) {
+                            Spacer(Modifier.height(14.dp))
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                            Spacer(Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        navController.navigateSafe("chat/${linkedGroup.id}")
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                LinkedGroupAvatar(
+                                    groupId = linkedGroup.id,
+                                    groupTitle = linkedGroup.title,
+                                    avatarUrl = linkedGroupCustomization?.avatarUrl,
+                                    avatarSize = 42.dp,
+                                    testTag = "channel_info_linked_group_avatar",
+                                    onClick = {
+                                        navController.navigateSafe("chat/${linkedGroup.id}")
+                                    }
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = linkedGroup.title,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 15.sp
+                                    )
+                                    Text(
+                                        text = "Привязанная группа обсуждения",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.55f)
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Filled.ChevronRight,
+                                    contentDescription = "Перейти в группу",
+                                    tint = Color.White.copy(alpha = 0.4f)
                                 )
                             }
                         }

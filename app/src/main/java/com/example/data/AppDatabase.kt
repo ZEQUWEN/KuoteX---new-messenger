@@ -186,6 +186,12 @@ interface GroupMemberDao {
 
     @Query("DELETE FROM group_members WHERE chatId = :chatId AND userId = :userId")
     suspend fun removeMember(chatId: String, userId: String)
+
+    @Query("SELECT chatId FROM group_members WHERE userId = :userId AND role = 'creator'")
+    fun getCreatorChatIds(userId: String): Flow<List<String>>
+
+    @Query("SELECT COUNT(*) > 0 FROM group_members WHERE chatId = :chatId AND userId = :userId AND role = 'creator'")
+    suspend fun isUserCreatorOfChat(chatId: String, userId: String): Boolean
 }
 
 @Dao
@@ -522,6 +528,8 @@ class MessengerRepository(
     suspend fun insertGroupMember(member: GroupMember) = groupMemberDao.insertGroupMember(member)
     suspend fun updateAdminStatus(chatId: String, userId: String, isAdmin: Boolean) = groupMemberDao.updateAdminStatus(chatId, userId, isAdmin)
     suspend fun removeMember(chatId: String, userId: String) = groupMemberDao.removeMember(chatId, userId)
+    fun getCreatorChatIds(userId: String): Flow<List<String>> = groupMemberDao.getCreatorChatIds(userId)
+    suspend fun isUserCreatorOfChat(chatId: String, userId: String): Boolean = groupMemberDao.isUserCreatorOfChat(chatId, userId)
 
     suspend fun deleteMessage(messageId: String) = messageDao.deleteMessage(messageId)
     suspend fun deleteSystemSyncMessages() = messageDao.deleteSystemSyncMessages()

@@ -142,6 +142,8 @@ object ChannelCustomizationManager {
 
     fun getCustomizationFlow(chatId: String): StateFlow<Map<String, ChannelCustomization>> = customizations.asStateFlow()
 
+    fun getAllCustomizationsFlow(): StateFlow<Map<String, ChannelCustomization>> = customizations.asStateFlow()
+
     fun getCustomization(chatId: String): ChannelCustomization {
         return customizations.value[chatId] ?: ChannelCustomization(chatId = chatId).also { defaultItem ->
             customizations.update { it + (chatId to defaultItem) }
@@ -580,7 +582,9 @@ object ChannelCustomizationManager {
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
             map + (chatId to current.copy(
                 discussionChatId = null,
-                discussionChatTitle = ""
+                discussionChatTitle = "",
+                discussionOnlyMembersCanSend = false,
+                discussionJoinRequestsRequired = false
             ))
         }
         logAdminAction(
@@ -588,6 +592,29 @@ object ChannelCustomizationManager {
             title = "Отвязана группа обсуждений",
             details = if (oldTitle.isNotBlank()) "Группа «$oldTitle» отвязана" else "Обсуждение отключено"
         )
+    }
+
+    fun updateDiscussionSettings(
+        chatId: String,
+        onlyMembersCanSend: Boolean,
+        joinRequestsRequired: Boolean
+    ) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            map + (chatId to current.copy(
+                discussionOnlyMembersCanSend = onlyMembersCanSend,
+                discussionJoinRequestsRequired = joinRequestsRequired
+            ))
+        }
+        logAdminAction(
+            chatId = chatId,
+            title = "Настройки обсуждения",
+            details = "Только участники: ${if (onlyMembersCanSend) "Да" else "Нет"}, Заявки: ${if (joinRequestsRequired) "Да" else "Нет"}"
+        )
+    }
+
+    fun getLinkedChannelForGroup(groupChatId: String): ChannelCustomization? {
+        return customizations.value.values.firstOrNull { it.discussionChatId == groupChatId }
     }
 
     fun banUser(chatId: String, userId: String, userName: String, reason: String = "Нарушение правил канала", bannedBy: String = "Вы") {

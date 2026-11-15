@@ -92,6 +92,65 @@ fun isChannelAdminOrCreator(
     return member.isAdmin || member.role == "creator" || member.role == "admin"
 }
 
+data class DiscussionLinkValidation(
+    val allowed: Boolean,
+    val errorMessage: String? = null
+)
+
+/**
+ * Verifies both channel management permissions AND strict creator ownership
+ * (`role == "creator"`) on the target group so a channel admin/creator cannot
+ * accidentally or illicitly link someone else's group to channel discussions.
+ */
+fun validateDiscussionGroupLink(
+    channelChat: Chat?,
+    channelMembers: List<GroupMember>,
+    targetGroupChat: Chat?,
+    targetGroupMembers: List<GroupMember>,
+    activeAccount: UserAccount?
+): DiscussionLinkValidation {
+    if (activeAccount == null) {
+        return DiscussionLinkValidation(
+            allowed = false,
+            errorMessage = "Необходимо авторизоваться для привязки группы"
+        )
+    }
+    if (channelChat == null || !channelChat.isChannel) {
+        return DiscussionLinkValidation(
+            allowed = false,
+            errorMessage = "Канал для привязки не найден"
+        )
+    }
+    val channelMember = findCurrentChannelMember(channelMembers, activeAccount)
+    val canManageChannelDiscussion = channelMember != null && (
+        channelMember.role == "creator" ||
+            hasFullChannelAdminRights(channelMember) ||
+            channelMember.canChangeChannelInfo
+        )
+    if (!canManageChannelDiscussion) {
+        return DiscussionLinkValidation(
+            allowed = false,
+            errorMessage = "Недостаточно прав администратора канала для привязки обсуждения"
+        )
+    }
+    if (targetGroupChat == null || !targetGroupChat.isGroup || targetGroupChat.isChannel || targetGroupChat.id == channelChat.id) {
+        return DiscussionLinkValidation(
+            allowed = false,
+            errorMessage = "Можно привязать только группу"
+        )
+    }
+    val isCreatorOfTargetGroup = targetGroupMembers.any {
+        it.userId == activeAccount.id && it.role == "creator"
+    }
+    if (!isCreatorOfTargetGroup) {
+        return DiscussionLinkValidation(
+            allowed = false,
+            errorMessage = "Нельзя привязать чужую группу: привязать можно только группу, созданную Вами"
+        )
+    }
+    return DiscussionLinkValidation(allowed = true)
+}
+
 /**
  * Route-level guard that verifies creator or admin permissions before rendering
  * any channel administration screen. Non-admin subscribers (or partial admins

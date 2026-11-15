@@ -982,10 +982,10 @@ class AppViewModel(
                 repository.insertChat(Chat("c3", "SynthBot", isBot = true, lastMessage = "Synthesizer audio generator bot", unreadCount = 0))
                 repository.insertChat(Chat("c4", "@trinity", isGroup = false, lastMessage = "", unreadCount = 0))
 
-                repository.insertGroupMember(GroupMember("c1", "u1", "Sarah Connor", isAdmin = true))
-                repository.insertGroupMember(GroupMember("c1", "u2", "John Doe", isAdmin = false))
-                repository.insertGroupMember(GroupMember("c1", "u3", "Crypto Alpha", isAdmin = false))
-                repository.insertGroupMember(GroupMember("c1", "u4", "KuoteX Hacker", isAdmin = false))
+                repository.insertGroupMember(GroupMember("c1", "u1", "Sarah Connor", isAdmin = true, role = "creator"))
+                repository.insertGroupMember(GroupMember("c1", "u2", "John Doe", isAdmin = false, role = "subscriber"))
+                repository.insertGroupMember(GroupMember("c1", "u3", "Crypto Alpha", isAdmin = false, role = "subscriber"))
+                repository.insertGroupMember(GroupMember("c1", "u4", "KuoteX Hacker", isAdmin = false, role = "subscriber"))
             } else {
                 // Seamlessly migrate legacy chat title if present
                 val c1 = repository.allChats.firstOrNull()?.find { it.id == "c1" }
@@ -1044,8 +1044,39 @@ class AppViewModel(
                 }
             }
 
-            // Seed channel roles so creators/admins and regular subscribers are strictly separated
+            // Ensure seeded public/other groups have explicit foreign creators so creator-only link check is accurate
             val nowTs = System.currentTimeMillis()
+            val foreignGroupCreators = mapOf(
+                "c1" to ("u1" to "Sarah Connor"),
+                "g1" to ("u10" to "Pavel Durov"),
+                "g2" to ("u12" to "Alex KuoteX"),
+                "g3" to ("u12" to "Alex KuoteX"),
+                "g4" to ("u10" to "Pavel Durov"),
+                "g5" to ("u12" to "Alex KuoteX")
+            )
+            foreignGroupCreators.forEach { (gId, ownerPair) ->
+                val members = repository.getGroupMembers(gId).firstOrNull().orEmpty()
+                if (members.none { it.role == "creator" }) {
+                    repository.insertGroupMember(
+                        GroupMember(
+                            chatId = gId,
+                            userId = ownerPair.first,
+                            userName = ownerPair.second,
+                            isAdmin = true,
+                            role = "creator",
+                            joinedAt = nowTs - 86400_000L * 40,
+                            canChangeChannelInfo = true,
+                            canPostMessages = true,
+                            canEditMessages = true,
+                            canDeleteMessages = true,
+                            canBanUsers = true,
+                            canManageInvites = true
+                        )
+                    )
+                }
+            }
+
+            // Seed channel roles so creators/admins and regular subscribers are strictly separated
             val c2Members = repository.getGroupMembers("c2").firstOrNull().orEmpty()
             if (c2Members.isEmpty()) {
                 val active = repository.activeAccountFlow.firstOrNull()
@@ -1743,6 +1774,129 @@ class AppViewModel(
         }
     }
 
+    fun getCreatorOwnedGroupIds(userId: String): Flow<List<String>> {
+        if (userId.isBlank()) return kotlinx.coroutines.flow.flowOf(emptyList())
+        return repository.getCreatorChatIds(userId)
+    }
+
+    fun linkDiscussionGroupWithVerification(
+        channelId: String,
+        groupId: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+            val channelChat = repository.getChatById(channelId)
+            val channelMembers = repository.getGroupMembers(channelId).firstOrNull().orEmpty()
+            val targetGroupChat = repository.getChatById(groupId)
+            val targetGroupMembers = repository.getGroupMembers(groupId).firstOrNull().orEmpty()
+
+            val validation = com.example.ui.channel.validateDiscussionGroupLink(
+                channelChat = channelChat,
+                channelMembers = channelMembers,
+                targetGroupChat = targetGroupChat,
+                targetGroupMembers = targetGroupMembers,
+                activeAccount = active
+            )
+
+            if (!validation.allowed || targetGroupChat == null) {
+                val errorMsg = validation.errorMessage ?: "Не удалось привязать группу"
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(false, errorMsg)
+                }
+                return@launch
+            }
+
+            com.example.ui.channel.ChannelCustomizationManager.linkDiscussionChat(
+                chatId = channelId,
+                discussionChatId = targetGroupChat.id,
+                discussionTitle = targetGroupChat.title
+            )
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                onResult(true, "Привязана группа «${targetGroupChat.title}»")
+            }
+        }
+    }
+
+    fun createAndLinkDiscussionGroup(
+        channelId: String,
+        groupName: String,
+        isPrivate: Boolean = true,
+        photo: String = "",
+        onResult: (Boolean, Chat?, String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+            val channelChat = repository.getChatById(channelId)
+            val channelMembers = repository.getGroupMembers(channelId).firstOrNull().orEmpty()
+            val channelMember = com.example.ui.channel.findCurrentChannelMember(channelMembers, active)
+            val canManageChannel = channelChat != null && channelChat.isChannel && channelMember != null && (
+                channelMember.role == "creator" ||
+                    com.example.ui.channel.hasFullChannelAdminRights(channelMember) ||
+                    channelMember.canChangeChannelInfo
+                )
+            if (active == null || !canManageChannel) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(false, null, "Нет прав администратора канала для создания группы обсуждения")
+                }
+                return@launch
+            }
+
+            val trimmedName = groupName.trim().ifBlank { "${channelChat?.title ?: "Канал"} CHAT" }
+            val newGroupId = java.util.UUID.randomUUID().toString()
+            val newGroupChat = Chat(
+                id = newGroupId,
+                title = trimmedName,
+                isGroup = true,
+                isSecret = false,
+                isChannel = false,
+                lastMessage = ""
+            )
+            repository.insertChat(newGroupChat)
+
+            val ownerName = active.displayName.ifBlank { active.username.ifBlank { "Вы" } }
+            repository.insertGroupMember(
+                GroupMember(
+                    chatId = newGroupId,
+                    userId = active.id,
+                    userName = ownerName,
+                    isAdmin = true,
+                    role = "creator",
+                    joinedAt = System.currentTimeMillis(),
+                    canPostMessages = true,
+                    canEditMessages = true,
+                    canDeleteMessages = true,
+                    canManageStreams = true,
+                    canAddAdmins = true,
+                    canChangeChannelInfo = true,
+                    canPostStories = true,
+                    canEditStories = true,
+                    canDeleteStories = true,
+                    canAccessDirectMessages = true,
+                    canManageGreetings = true,
+                    canManageInvites = true,
+                    canBanUsers = true
+                )
+            )
+            val finalLink = "t.me/kuotex_${newGroupId.take(6)}"
+            com.example.ui.channel.ChannelCustomizationManager.initializeCreatedChannel(
+                chatId = newGroupId,
+                description = "Чат обсуждений канала «${channelChat?.title ?: "Канал"}»",
+                isPublic = !isPrivate,
+                inviteLink = finalLink,
+                avatarUrl = photo.takeIf { it.isNotBlank() }
+            )
+            com.example.ui.channel.ChannelCustomizationManager.linkDiscussionChat(
+                chatId = channelId,
+                discussionChatId = newGroupId,
+                discussionTitle = trimmedName
+            )
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                onResult(true, newGroupChat, "Группа «$trimmedName» создана и привязана")
+            }
+        }
+    }
+
     fun updateChatTitle(chatId: String, newTitle: String) {
         if (newTitle.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -1911,6 +2065,35 @@ class AppViewModel(
             com.example.ui.rating.UserRatingManager.recordMessageActivity(
                 senderId.ifBlank { activeAccount.value?.id ?: "me" }
             )
+
+            // Auto-forward new channel publications to the linked discussion group
+            if (targetChat?.isChannel == true) {
+                val linkedGroupId = com.example.ui.channel.ChannelCustomizationManager
+                    .getCustomization(chatId)
+                    .discussionChatId
+                if (!linkedGroupId.isNullOrBlank() && linkedGroupId != chatId) {
+                    val linkedGroup = repository.getChatById(linkedGroupId)
+                    if (linkedGroup != null && linkedGroup.isGroup && !linkedGroup.isChannel) {
+                        val fwdMsg = Message(
+                            id = java.util.UUID.randomUUID().toString(),
+                            chatId = linkedGroupId,
+                            senderId = senderId,
+                            text = encryptedMsg,
+                            audioPath = audioPath,
+                            mediaPath = mediaPath,
+                            mediaType = mediaType,
+                            documentData = documentData,
+                            timestamp = System.currentTimeMillis() + 5L,
+                            isDelivered = isOnline,
+                            isForwarded = true,
+                            forwardOriginalSenderId = chatId,
+                            forwardOriginalSenderName = targetChat.title,
+                            forwardHideSender = false
+                        )
+                        repository.insertMessageAndUpdateChat(fwdMsg, sanitizedText, targetChat.title)
+                    }
+                }
+            }
             
             if (!isOnline) {
                 // Persistent Room caching for offline outgoing messages
@@ -2165,7 +2348,16 @@ class AppViewModel(
             repository.insertChat(chat)
         }
     }
-    fun createChat(name: String, desc: String, photo: String, isPrivate: Boolean, linkOrUsername: String, isGroup: Boolean = false, isChannel: Boolean = false) {
+    fun createChat(
+        name: String,
+        desc: String,
+        photo: String,
+        isPrivate: Boolean,
+        linkOrUsername: String,
+        isGroup: Boolean = false,
+        isChannel: Boolean = false,
+        onCreated: ((Chat) -> Unit)? = null
+    ) {
         viewModelScope.launch {
             val newChatId = java.util.UUID.randomUUID().toString()
             val chat = Chat(id = newChatId, title = name, isGroup = isGroup, isSecret = false, isChannel = isChannel, lastMessage = "")
@@ -2204,13 +2396,19 @@ class AppViewModel(
                     .removePrefix("t.me/")
                     .removePrefix("@")
                 val finalLink = if (normalizedHandle.isNotBlank()) "t.me/$normalizedHandle" else "t.me/kuotex_${newChatId.take(6)}"
+                val defaultDesc = if (isChannel) "Добро пожаловать в канал «$name»." else "Добро пожаловать в группу «$name»."
                 com.example.ui.channel.ChannelCustomizationManager.initializeCreatedChannel(
                     chatId = newChatId,
-                    description = desc.ifBlank { "Добро пожаловать в канал «$name»." },
+                    description = desc.ifBlank { defaultDesc },
                     isPublic = !isPrivate,
                     inviteLink = finalLink,
                     avatarUrl = photo.takeIf { it.isNotBlank() }
                 )
+            }
+            if (onCreated != null) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onCreated(chat)
+                }
             }
         }
     }

@@ -39,11 +39,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddModerator
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.RemoveCircleOutline
@@ -91,8 +93,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -100,10 +107,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.data.AvatarStorageManager
+import com.example.data.EntityType
 import com.example.ui.AppViewModel
 import com.example.ui.Chat
 import com.example.ui.GroupMember
@@ -696,7 +708,86 @@ private fun InviteLinksManagementDialog(
 }
 
 /**
- * 2. Channel Discussion Group Screen ("Обсуждение" — matches Screenshot 161303)
+ * Reusable circular avatar for a linked discussion group. Supports optional click navigation
+ * directly into the group chat while preserving a >= 48.dp touch target when clickable.
+ */
+@Composable
+fun LinkedGroupAvatar(
+    groupId: String,
+    groupTitle: String,
+    avatarUrl: String? = null,
+    avatarSize: Dp = 46.dp,
+    testTag: String = "",
+    onClick: (() -> Unit)? = null
+) {
+    val context = LocalContext.current
+    val hasCustomLocal = remember(groupId) {
+        AvatarStorageManager.hasCustomAvatar(context, EntityType.GROUP, groupId)
+    }
+    val resolvedUrl = remember(groupId, avatarUrl, hasCustomLocal) {
+        if (hasCustomLocal) {
+            AvatarStorageManager.getAvatar(context, EntityType.GROUP, groupId, avatarUrl)
+        } else {
+            avatarUrl?.takeIf { it.isNotBlank() }
+        }
+    }
+
+    val touchModifier = if (onClick != null) {
+        Modifier
+            .size(maxOf(avatarSize, 48.dp))
+            .clip(CircleShape)
+            .clickable(
+                onClickLabel = "Открыть группу $groupTitle",
+                role = Role.Button,
+                onClick = onClick
+            )
+            .semantics {
+                contentDescription = "Перейти в группу $groupTitle"
+            }
+            .then(if (testTag.isNotBlank()) Modifier.testTag(testTag) else Modifier)
+    } else {
+        Modifier
+            .size(avatarSize)
+            .then(if (testTag.isNotBlank()) Modifier.testTag(testTag) else Modifier)
+    }
+
+    Box(
+        modifier = touchModifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(avatarSize)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(listOf(Color(0xFF42A5F5), Color(0xFF1E88E5)))
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!resolvedUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(resolvedUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Аватар группы $groupTitle",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Text(
+                    text = groupTitle.trim().take(2).ifBlank { "Ч" }.uppercase(),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (avatarSize.value * 0.36f).sp
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 2. Channel Discussion Group Screen ("Обсуждение" — matches Telegram video & Screenshot 161303)
  */
 @Composable
 fun ChannelDiscussionAdminScreen(
@@ -706,11 +797,28 @@ fun ChannelDiscussionAdminScreen(
 ) {
     val context = LocalContext.current
     val chats by viewModel.chats.collectAsStateWithLifecycle()
+    val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
     val customizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val customization = customizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
-    val availableGroups = remember(chats, chatId) {
-        chats.filter { it.isGroup && it.id != chatId }
+    val creatorGroupIds by viewModel
+        .getCreatorOwnedGroupIds(activeAccount?.id ?: "")
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+
+    val allGroups = remember(chats, chatId) {
+        chats.filter { it.isGroup && !it.isChannel && it.id != chatId }
     }
+    val myCreatedGroups = remember(allGroups, creatorGroupIds) {
+        allGroups.filter { creatorGroupIds.contains(it.id) }
+    }
+    val otherGroups = remember(allGroups, creatorGroupIds) {
+        allGroups.filterNot { creatorGroupIds.contains(it.id) }
+    }
+    val linkedGroupChat = remember(chats, customization.discussionChatId) {
+        customization.discussionChatId?.let { linkedId ->
+            chats.find { it.id == linkedId && it.isGroup }
+        }
+    }
+    val linkedGroupCustomization = linkedGroupChat?.id?.let { customizationsMap[it] }
 
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var showUnlinkConfirm by remember { mutableStateOf(false) }
@@ -749,41 +857,66 @@ fun ChannelDiscussionAdminScreen(
     if (showCreateGroupDialog) {
         val currentChannelTitle = chats.find { it.id == chatId }?.title ?: "Канал"
         var groupName by remember { mutableStateOf("$currentChannelTitle CHAT") }
+        var isPrivateGroup by remember { mutableStateOf(true) }
         AlertDialog(
             onDismissRequest = { showCreateGroupDialog = false },
             containerColor = Color(0xFF171C26),
             title = { Text("Создать группу для обсуждения", color = Color.White, fontWeight = FontWeight.Bold) },
             text = {
-                OutlinedTextField(
-                    value = groupName,
-                    onValueChange = { groupName = it },
-                    label = { Text("Название группы") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = TelegramAdminPurple
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = groupName,
+                        onValueChange = { groupName = it },
+                        label = { Text("Название группы") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("create_discussion_group_name_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = TelegramAdminPurple
+                        )
                     )
-                )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isPrivateGroup = !isPrivateGroup },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Частная группа", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                "Владельцем группы будете назначены Вы",
+                                color = TelegramAdminCaptionColor,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Switch(
+                            checked = isPrivateGroup,
+                            onCheckedChange = { isPrivateGroup = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = TelegramAdminPurpleStrong
+                            )
+                        )
+                    }
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         val trimmed = groupName.trim().ifBlank { "$currentChannelTitle CHAT" }
-                        viewModel.createChat(
-                            name = trimmed,
-                            desc = "Чат обсуждений канала «$currentChannelTitle»",
-                            photo = "",
-                            isPrivate = true,
-                            linkOrUsername = "",
-                            isGroup = true,
-                            isChannel = false
-                        )
-                        ChannelCustomizationManager.linkDiscussionChat(chatId, null, trimmed)
-                        Toast.makeText(context, "Группа «$trimmed» создана и привязана", Toast.LENGTH_SHORT).show()
+                        viewModel.createAndLinkDiscussionGroup(
+                            channelId = chatId,
+                            groupName = trimmed,
+                            isPrivate = isPrivateGroup
+                        ) { _, _, message ->
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
                         showCreateGroupDialog = false
                     },
+                    modifier = Modifier.testTag("confirm_create_discussion_group_button"),
                     colors = ButtonDefaults.buttonColors(containerColor = TelegramAdminPurpleStrong)
                 ) {
                     Text("Создать и привязать")
@@ -847,7 +980,7 @@ fun ChannelDiscussionAdminScreen(
                 ) {
                     DiscussionHeroIllustration()
                     Spacer(Modifier.height(14.dp))
-                    if (customization.discussionChatTitle.isNotBlank()) {
+                    if (customization.discussionChatId != null && customization.discussionChatTitle.isNotBlank()) {
                         Text(
                             text = buildAnnotatedString {
                                 append("В группе «")
@@ -864,7 +997,7 @@ fun ChannelDiscussionAdminScreen(
                         )
                     } else {
                         Text(
-                            text = "Подключите группу для обсуждения, чтобы подписчики могли оставлять комментарии под публикациями.",
+                            text = "Привяжите созданную Вами группу, чтобы подписчики могли оставлять комментарии под публикациями.",
                             color = TelegramAdminCaptionColor,
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center,
@@ -875,8 +1008,9 @@ fun ChannelDiscussionAdminScreen(
                 }
             }
 
-            // Currently Linked Group Card (Screenshot 161303)
-            if (customization.discussionChatTitle.isNotBlank()) {
+            // Currently Linked Group Card + Unlink (Telegram Video 00:00)
+            val activeLinkedId = customization.discussionChatId
+            if (!activeLinkedId.isNullOrBlank() && customization.discussionChatTitle.isNotBlank()) {
                 item {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
@@ -888,30 +1022,22 @@ fun ChannelDiscussionAdminScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        val linkedId = customization.discussionChatId
-                                        if (linkedId != null) {
-                                            navController.navigate("chat/$linkedId")
-                                        }
+                                        navController.navigate("chat/$activeLinkedId")
                                     }
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                                    .testTag("linked_discussion_group_row"),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            Brush.linearGradient(listOf(Color(0xFF42A5F5), Color(0xFF1E88E5)))
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = customization.discussionChatTitle.take(2).ifBlank { "Ч" },
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp
-                                    )
-                                }
+                                LinkedGroupAvatar(
+                                    groupId = activeLinkedId,
+                                    groupTitle = customization.discussionChatTitle,
+                                    avatarUrl = linkedGroupCustomization?.avatarUrl,
+                                    avatarSize = 46.dp,
+                                    testTag = "linked_discussion_group_avatar",
+                                    onClick = {
+                                        navController.navigate("chat/$activeLinkedId")
+                                    }
+                                )
                                 Spacer(Modifier.width(14.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -921,11 +1047,16 @@ fun ChannelDiscussionAdminScreen(
                                         fontSize = 16.sp
                                     )
                                     Text(
-                                        text = "Частная группа",
+                                        text = if (linkedGroupCustomization?.isPublic == true) "Публичная группа" else "Частная группа",
                                         color = TelegramAdminCaptionColor,
                                         fontSize = 13.sp
                                     )
                                 }
+                                Icon(
+                                    imageVector = Icons.Filled.ChevronRight,
+                                    contentDescription = "Открыть группу",
+                                    tint = TelegramAdminCaptionColor
+                                )
                             }
 
                             HorizontalDivider(
@@ -942,13 +1073,12 @@ fun ChannelDiscussionAdminScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
-                                    modifier = Modifier
-                                        .size(46.dp),
+                                    modifier = Modifier.size(46.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.RemoveCircleOutline,
-                                        contentDescription = null,
+                                        contentDescription = "Отвязать группу",
                                         tint = Color(0xFFFF5A5F),
                                         modifier = Modifier.size(24.dp)
                                     )
@@ -964,9 +1094,122 @@ fun ChannelDiscussionAdminScreen(
                         }
                     }
                 }
+
+                // Auto-forward caption
+                item {
+                    Text(
+                        text = "Всё, что Вы публикуете в этом канале, будет автоматически пересылаться в группу.",
+                        color = TelegramAdminCaptionColor,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                    )
+                }
+
+                // "Кто может отправлять сообщения?" card (Telegram Video 00:00 - 00:01)
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = TelegramAdminCardBg,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "Кто может отправлять сообщения?",
+                                color = TelegramAdminPurple,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 6.dp)
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        ChannelCustomizationManager.updateDiscussionSettings(
+                                            chatId = chatId,
+                                            onlyMembersCanSend = !customization.discussionOnlyMembersCanSend,
+                                            joinRequestsRequired = customization.discussionJoinRequestsRequired
+                                        )
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                                    .testTag("discussion_only_members_row"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Только участники",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Switch(
+                                    checked = customization.discussionOnlyMembersCanSend,
+                                    onCheckedChange = { checked ->
+                                        ChannelCustomizationManager.updateDiscussionSettings(
+                                            chatId = chatId,
+                                            onlyMembersCanSend = checked,
+                                            joinRequestsRequired = customization.discussionJoinRequestsRequired
+                                        )
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = TelegramAdminPurpleStrong
+                                    )
+                                )
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(start = 16.dp), color = TelegramAdminDividerColor)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        ChannelCustomizationManager.updateDiscussionSettings(
+                                            chatId = chatId,
+                                            onlyMembersCanSend = customization.discussionOnlyMembersCanSend,
+                                            joinRequestsRequired = !customization.discussionJoinRequestsRequired
+                                        )
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                                    .testTag("discussion_join_requests_row"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Заявки на вступление",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Switch(
+                                    checked = customization.discussionJoinRequestsRequired,
+                                    onCheckedChange = { checked ->
+                                        ChannelCustomizationManager.updateDiscussionSettings(
+                                            chatId = chatId,
+                                            onlyMembersCanSend = customization.discussionOnlyMembersCanSend,
+                                            joinRequestsRequired = checked
+                                        )
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = TelegramAdminPurpleStrong
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Новые участники смогут вступить в группу только после одобрения заявки администратором.",
+                        color = TelegramAdminCaptionColor,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                    )
+                }
             }
 
-            // Pick another group or create new group
+            // Create new group or pick from user's own created groups
             item {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
@@ -1000,44 +1243,63 @@ fun ChannelDiscussionAdminScreen(
                             )
                         }
 
-                        if (availableGroups.isNotEmpty()) {
-                            HorizontalDivider(color = TelegramAdminDividerColor)
-                            availableGroups.forEachIndexed { idx, group ->
-                                val isLinked = customization.discussionChatTitle == group.title
+                        HorizontalDivider(color = TelegramAdminDividerColor)
+                        Text(
+                            text = "Мои группы (Вы — создатель)",
+                            color = TelegramAdminPurple,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 4.dp)
+                        )
+
+                        if (myCreatedGroups.isEmpty()) {
+                            Text(
+                                text = "У Вас пока нет созданных Вами групп. Нажмите «Создать новую группу», чтобы создать и привязать чат обсуждений.",
+                                color = TelegramAdminCaptionColor,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                            )
+                        } else {
+                            myCreatedGroups.forEachIndexed { idx, group ->
+                                val isLinked = customization.discussionChatId == group.id
+                                val groupCustom = customizationsMap[group.id]
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            ChannelCustomizationManager.linkDiscussionChat(chatId, group.id, group.title)
-                                            Toast.makeText(context, "Привязана группа «${group.title}»", Toast.LENGTH_SHORT).show()
+                                            viewModel.linkDiscussionGroupWithVerification(chatId, group.id) { _, msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            }
                                         }
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                        .testTag("my_group_link_row_${group.id}"),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF2B5278)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = group.title.take(2).uppercase(),
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp
-                                        )
-                                    }
-                                    Spacer(Modifier.width(14.dp))
+                                    LinkedGroupAvatar(
+                                        groupId = group.id,
+                                        groupTitle = group.title,
+                                        avatarUrl = groupCustom?.avatarUrl,
+                                        avatarSize = 42.dp,
+                                        testTag = "group_item_avatar_${group.id}",
+                                        onClick = {
+                                            navController.navigate("chat/${group.id}")
+                                        }
+                                    )
+                                    Spacer(Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(group.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                        Text("Группа", color = TelegramAdminCaptionColor, fontSize = 12.sp)
+                                        Text(
+                                            text = "Создатель · нажмите на аватар для перехода",
+                                            color = TelegramAdminCaptionColor,
+                                            fontSize = 12.sp
+                                        )
                                     }
                                     if (isLinked) {
-                                        Icon(Icons.Filled.Check, contentDescription = "Выбрано", tint = TelegramAdminPurple)
+                                        Icon(Icons.Filled.Check, contentDescription = "Привязана", tint = TelegramAdminPurple)
                                     }
                                 }
-                                if (idx < availableGroups.lastIndex) {
+                                if (idx < myCreatedGroups.lastIndex) {
                                     HorizontalDivider(modifier = Modifier.padding(start = 70.dp), color = TelegramAdminDividerColor)
                                 }
                             }
@@ -1046,17 +1308,77 @@ fun ChannelDiscussionAdminScreen(
                 }
             }
 
-            // Footer Caption
-            item {
-                Text(
-                    text = "Всё, что Вы публикуете в этом канале, будет автоматически пересылаться в группу.",
-                    color = TelegramAdminCaptionColor,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp)
-                )
+            // Foreign groups section (locked with explicit creator-rights verification)
+            if (otherGroups.isNotEmpty()) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = TelegramAdminCardBg.copy(alpha = 0.72f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "Чужие группы (требуются права создателя)",
+                                color = TelegramAdminCaptionColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 4.dp)
+                            )
+                            otherGroups.forEachIndexed { idx, group ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            viewModel.linkDiscussionGroupWithVerification(chatId, group.id) { _, msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                        .testTag("foreign_group_blocked_row_${group.id}"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF232934)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = group.title.take(2).uppercase(),
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = group.title,
+                                            color = Color.White.copy(alpha = 0.65f),
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "Вы не являетесь создателем этой группы",
+                                            color = Color(0xFFFF8A80).copy(alpha = 0.85f),
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Filled.Lock,
+                                        contentDescription = "Недоступно: чужая группа",
+                                        tint = TelegramAdminCaptionColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                if (idx < otherGroups.lastIndex) {
+                                    HorizontalDivider(modifier = Modifier.padding(start = 68.dp), color = TelegramAdminDividerColor)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
