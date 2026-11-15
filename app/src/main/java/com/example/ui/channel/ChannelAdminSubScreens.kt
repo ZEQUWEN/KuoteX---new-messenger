@@ -198,6 +198,7 @@ fun ChannelTypeAdminScreen(
     val context = LocalContext.current
     val customizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val customization = customizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
+    val inviteLinks by viewModel.observeGroupInviteLinks(chatId).collectAsStateWithLifecycle(initialValue = emptyList())
 
     var isPublicType by remember(chatId) { mutableStateOf(customization.isPublic) }
     val initialHandle = remember(chatId) {
@@ -210,7 +211,6 @@ fun ChannelTypeAdminScreen(
     }
     var publicHandle by remember(chatId) { mutableStateOf(initialHandle) }
     var restrictSaving by remember(chatId) { mutableStateOf(customization.restrictSavingContent) }
-    var showInviteLinksManager by remember { mutableStateOf(false) }
 
     val handleSanitized = publicHandle.trim().lowercase().filter { it.isLetterOrDigit() || it == '_' }
     val isHandleValid = !isPublicType || (
@@ -218,23 +218,6 @@ fun ChannelTypeAdminScreen(
             handleSanitized.all { it in 'a'..'z' || it in '0'..'9' || it == '_' } &&
             !handleSanitized.first().isDigit()
         )
-
-    if (showInviteLinksManager) {
-        InviteLinksManagementDialog(
-            chatId = chatId,
-            primaryLink = if (isPublicType) "t.me/$handleSanitized" else customization.inviteLink,
-            additionalLinks = customization.additionalInviteLinks,
-            onCreateLink = { label ->
-                ChannelCustomizationManager.createInviteLink(chatId, label)
-                Toast.makeText(context, "Ссылка создана", Toast.LENGTH_SHORT).show()
-            },
-            onRevokeLink = { linkId ->
-                ChannelCustomizationManager.revokeInviteLink(chatId, linkId)
-                Toast.makeText(context, "Ссылка отозвана", Toast.LENGTH_SHORT).show()
-            },
-            onDismiss = { showInviteLinksManager = false }
-        )
-    }
 
     Scaffold(
         containerColor = TelegramAdminBg,
@@ -491,7 +474,7 @@ fun ChannelTypeAdminScreen(
             // Card 3: Управление приглашениями
             item {
                 Surface(
-                    onClick = { showInviteLinksManager = true },
+                    onClick = { navController.navigateSafe(AppDestinations.groupInviteLinks(chatId)) },
                     shape = RoundedCornerShape(16.dp),
                     color = TelegramAdminCardBg,
                     modifier = Modifier
@@ -517,9 +500,10 @@ fun ChannelTypeAdminScreen(
                             fontSize = 16.sp,
                             modifier = Modifier.weight(1f)
                         )
-                        if (customization.additionalInviteLinks.isNotEmpty()) {
+                        val countToDisplay = maxOf(inviteLinks.size, customization.additionalInviteLinks.size)
+                        if (countToDisplay > 0) {
                             Text(
-                                text = "${customization.additionalInviteLinks.size + 1}",
+                                text = "$countToDisplay",
                                 color = TelegramAdminPurple,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -1863,6 +1847,9 @@ fun ChannelSubscribersScreen(
     navController: NavController
 ) {
     val context = LocalContext.current
+    val chats by viewModel.chats.collectAsStateWithLifecycle()
+    val chat = chats.find { it.id == chatId }
+    val isGroup = chat?.isGroup == true && chat.isChannel != true
     val members by viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList())
     val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
     val contacts by viewModel.contacts.collectAsStateWithLifecycle()
@@ -1872,7 +1859,6 @@ fun ChannelSubscribersScreen(
 
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var showAddSubscribersDialog by remember { mutableStateOf(false) }
 
     val filtered = remember(members, searchQuery) {
         if (searchQuery.isBlank()) members else members.filter {
@@ -1887,63 +1873,6 @@ fun ChannelSubscribersScreen(
     val botMembers = filtered.filter { it.role == "bot" || it.userId.endsWith("_bot", ignoreCase = true) }
     val otherSubscribers = filtered.filter { m ->
         !contactOrAdminMembers.any { it.userId == m.userId } && !botMembers.any { it.userId == m.userId }
-    }
-
-    if (showAddSubscribersDialog) {
-        val existingIds = members.map { it.userId }.toSet()
-        val addableContacts = contacts.filter { !existingIds.contains(it.id) }
-        AlertDialog(
-            onDismissRequest = { showAddSubscribersDialog = false },
-            containerColor = Color(0xFF171C26),
-            title = { Text("Добавить подписчиков", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 320.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (addableContacts.isEmpty()) {
-                        item {
-                            Text("Все ваши контакты уже подписаны на канал.", color = TelegramAdminCaptionColor, fontSize = 14.sp)
-                        }
-                    }
-                    items(addableContacts, key = { it.id }) { contact ->
-                        Surface(
-                            onClick = {
-                                viewModel.addGroupMember(
-                                    chatId = chatId,
-                                    userId = contact.id,
-                                    userName = contact.name,
-                                    isAdmin = false,
-                                    role = "subscriber"
-                                )
-                                Toast.makeText(context, "${contact.name} добавлен в канал", Toast.LENGTH_SHORT).show()
-                                showAddSubscribersDialog = false
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF1F2633)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                MemberCircleAvatar(name = contact.name, seed = contact.id, sizeDp = 38)
-                                Spacer(Modifier.width(12.dp))
-                                Text(contact.name, color = Color.White, fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAddSubscribersDialog = false }) {
-                    Text("Закрыть", color = TelegramAdminPurple)
-                }
-            }
-        )
     }
 
     Scaffold(
@@ -1980,7 +1909,7 @@ fun ChannelSubscribersScreen(
                             modifier = Modifier.fillMaxWidth(),
                             decorationBox = { inner ->
                                 if (searchQuery.isEmpty()) {
-                                    Text("Поиск подписчиков...", color = TelegramAdminCaptionColor, fontSize = 17.sp)
+                                    Text(if (isGroup) "Поиск участников..." else "Поиск подписчиков...", color = TelegramAdminCaptionColor, fontSize = 17.sp)
                                 }
                                 inner()
                             }
@@ -1988,7 +1917,7 @@ fun ChannelSubscribersScreen(
                     } else {
                         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             Text(
-                                text = "Подписчики",
+                                text = if (isGroup) "Участники" else "Подписчики",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 19.sp
@@ -2029,7 +1958,7 @@ fun ChannelSubscribersScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp)
         ) {
-            // Card 1: Добавить подписчиков / Пригласить по ссылке
+            // Card 1: Добавить участников/подписчиков / Пригласить по ссылке
             item {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
@@ -2040,14 +1969,19 @@ fun ChannelSubscribersScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { showAddSubscribersDialog = true }
+                                .clickable { navController.navigateSafe(AppDestinations.groupAddMembers(chatId)) }
                                 .padding(horizontal = 16.dp, vertical = 14.dp)
                                 .testTag("add_subscribers_row"),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = TelegramAdminPurple, modifier = Modifier.size(22.dp))
                             Spacer(Modifier.width(16.dp))
-                            Text("Добавить подписчиков", color = TelegramAdminPurple, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = if (isGroup) "Добавить участников" else "Добавить подписчиков",
+                                color = TelegramAdminPurple,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
 
                         HorizontalDivider(modifier = Modifier.padding(start = 54.dp), color = TelegramAdminDividerColor)
@@ -2055,12 +1989,7 @@ fun ChannelSubscribersScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    val fullLink = "https://${customization.inviteLink}"
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Channel Link", fullLink))
-                                    Toast.makeText(context, "Ссылка скопирована: $fullLink", Toast.LENGTH_SHORT).show()
-                                }
+                                .clickable { navController.navigateSafe(AppDestinations.groupInviteLinks(chatId)) }
                                 .padding(horizontal = 16.dp, vertical = 14.dp)
                                 .testTag("invite_by_link_row"),
                             verticalAlignment = Alignment.CenterVertically

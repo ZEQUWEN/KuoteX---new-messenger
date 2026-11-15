@@ -38,6 +38,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -891,6 +892,8 @@ fun SettingsSecurityScreen(viewModel: AppViewModel, navController: NavController
     var immediateDeleteDialogVisible by remember { mutableStateOf(false) }
     val activeAccount = LocalActiveAccount.current ?: return
     var deleteAccountValue by remember { mutableStateOf("6 months") }
+    val groupInvitePrivacy by viewModel.observeActiveUserGroupInvitePrivacy()
+        .collectAsStateWithLifecycle(initialValue = com.example.ui.group.GroupInvitePrivacy.EVERYBODY)
     
     Scaffold(
         topBar = {
@@ -965,6 +968,11 @@ fun SettingsSecurityScreen(viewModel: AppViewModel, navController: NavController
                     SettingsSimpleItem(title = "Last Seen & Online", value = "Everybody", onClick = { navController.navigateSafe("settings/privacy/Last Seen") })
                     SettingsSimpleItem(title = "Profile Photos", value = "Everybody", onClick = { navController.navigateSafe("settings/privacy/Profile Photos") })
                     SettingsSimpleItem(title = "Calls", value = "Everybody", onClick = { navController.navigateSafe("settings/privacy/Calls") })
+                    SettingsSimpleItem(
+                        title = "Группы и каналы",
+                        value = groupInvitePrivacy.label,
+                        onClick = { navController.navigateSafe("settings/privacy/Группы и каналы") }
+                    )
                 }
                 
                 PrivacySectionCard("Data and Backup") {
@@ -1592,23 +1600,87 @@ fun BlockedUsersScreen(viewModel: AppViewModel, navController: androidx.navigati
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun PrivacySettingScreen(navController: androidx.navigation.NavController, title: String) {
+fun PrivacySettingScreen(
+    viewModel: AppViewModel,
+    navController: androidx.navigation.NavController,
+    title: String
+) {
+    val isGroupsPrivacy = title == "Группы и каналы" || title == "Groups and Channels"
+    val currentGroupPrivacy by viewModel.observeActiveUserGroupInvitePrivacy()
+        .collectAsStateWithLifecycle(initialValue = com.example.ui.group.GroupInvitePrivacy.EVERYBODY)
     var selectedOption by remember { mutableStateOf("Everybody") }
-    Scaffold(topBar = { TopAppBar(title = { Text(title) }, navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { padding -> 
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text("Who can see my $title", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
-            listOf("Everybody", "My Contacts", "Nobody").forEach { option ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { selectedOption = option }.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(selected = selectedOption == option, onClick = { selectedOption = option })
-                    Spacer(Modifier.width(16.dp))
-                    Text(option, style = MaterialTheme.typography.bodyLarge)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title) },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
                 }
+            )
+        }
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (isGroupsPrivacy) {
+                Text(
+                    text = "Кто может добавлять меня в группы и каналы",
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                com.example.ui.group.GroupInvitePrivacy.entries.forEach { policy ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.updateActiveUserGroupInvitePrivacy(policy) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentGroupPrivacy == policy,
+                            onClick = { viewModel.updateActiveUserGroupInvitePrivacy(policy) }
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Text(policy.label, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "Вы можете ограничить круг пользователей, которым разрешено добавлять Вас в группы напрямую. Остальные смогут отправить пригласительную ссылку в личные сообщения.",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    text = "Who can see my $title",
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                listOf("Everybody", "My Contacts", "Nobody").forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedOption = option }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = selectedOption == option, onClick = { selectedOption = option })
+                        Spacer(Modifier.width(16.dp))
+                        Text(option, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "Changes to your privacy settings may take a few minutes to apply.",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            Text("Changes to your privacy settings may take a few minutes to apply.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

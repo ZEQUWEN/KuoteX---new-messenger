@@ -109,7 +109,13 @@ data class Message(
     val isForwarded: Boolean = false,
     val forwardOriginalSenderId: String? = null,
     val forwardOriginalSenderName: String? = null,
-    val forwardHideSender: Boolean = false
+    val forwardHideSender: Boolean = false,
+    val senderIdentityId: String? = null,
+    val senderIdentityType: String? = null,
+    val senderDisplayName: String? = null,
+    val senderAvatarUrl: String? = null,
+    val senderCustomTag: String? = null,
+    val senderEmojiStatus: String? = null
 )
 
 @Entity(tableName = "chats")
@@ -1176,6 +1182,57 @@ class AppViewModel(
                     seeded.forEach { repository.insertGroupMember(it) }
                 }
             }
+
+            // Seed default contacts so "Добавить участников" works immediately
+            val existingContacts = repository.allContacts.firstOrNull().orEmpty()
+            if (existingContacts.isEmpty()) {
+                listOf(
+                    Contact("u11", "Alice Hacker", "+15550112233", true),
+                    Contact("u12", "Alex KuoteX", "+15550123456", true),
+                    Contact("u13", "Elena Star", "+15550134567", true),
+                    Contact("u14", "John Satoshi", "+15550145678", true),
+                    Contact("u15", "Morpheus", "+15550156789", true),
+                    Contact("u16", "Trinity Hacker", "+15550167890", true)
+                ).forEach { repository.insertContact(it) }
+            }
+
+            // Seed realistic user group-invite privacy policies for contacts/users
+            val existingPrivacy = repository.getAllPrivacyRules().firstOrNull().orEmpty()
+            if (existingPrivacy.isEmpty()) {
+                listOf(
+                    com.example.ui.group.UserPrivacyRuleEntity("123456789", com.example.ui.group.GroupInvitePrivacy.EVERYBODY.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("987654321", com.example.ui.group.GroupInvitePrivacy.EVERYBODY.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("456789123", com.example.ui.group.GroupInvitePrivacy.MY_CONTACTS.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("u10", com.example.ui.group.GroupInvitePrivacy.NOBODY.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("u11", com.example.ui.group.GroupInvitePrivacy.NOBODY.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("u12", com.example.ui.group.GroupInvitePrivacy.EVERYBODY.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("u13", com.example.ui.group.GroupInvitePrivacy.MY_CONTACTS.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("u14", com.example.ui.group.GroupInvitePrivacy.NOBODY.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("u15", com.example.ui.group.GroupInvitePrivacy.EVERYBODY.code),
+                    com.example.ui.group.UserPrivacyRuleEntity("u16", com.example.ui.group.GroupInvitePrivacy.EVERYBODY.code)
+                ).forEach { repository.upsertPrivacyRule(it) }
+            }
+
+            // Ensure every group has a primary invite link persisted in Room
+            val allSeededChats = repository.allChats.firstOrNull().orEmpty()
+            allSeededChats.filter { it.isGroup && !it.isChannel }.forEach { grp ->
+                val links = repository.getInviteLinksForChatSync(grp.id)
+                if (links.isEmpty()) {
+                    val generatedUrl = com.example.ui.group.generateTelegramStyleInviteUrl(grp.id)
+                    repository.insertInviteLink(
+                        com.example.ui.group.GroupInviteLinkEntity(
+                            id = "primary_${grp.id}",
+                            chatId = grp.id,
+                            url = generatedUrl,
+                            label = "Основная ссылка",
+                            createdByUserId = "system",
+                            createdByName = "Владелец",
+                            isPrimary = true
+                        )
+                    )
+                    com.example.ui.channel.ChannelCustomizationManager.updatePrimaryInviteLink(grp.id, generatedUrl)
+                }
+            }
         }
         // Cache Manager Service
         viewModelScope.launch {
@@ -1878,13 +1935,24 @@ class AppViewModel(
                     canBanUsers = true
                 )
             )
-            val finalLink = "t.me/kuotex_${newGroupId.take(6)}"
+            val finalLink = com.example.ui.group.generateTelegramStyleInviteUrl(newGroupId)
             com.example.ui.channel.ChannelCustomizationManager.initializeCreatedChannel(
                 chatId = newGroupId,
                 description = "Чат обсуждений канала «${channelChat?.title ?: "Канал"}»",
                 isPublic = !isPrivate,
                 inviteLink = finalLink,
                 avatarUrl = photo.takeIf { it.isNotBlank() }
+            )
+            repository.insertInviteLink(
+                com.example.ui.group.GroupInviteLinkEntity(
+                    id = java.util.UUID.randomUUID().toString(),
+                    chatId = newGroupId,
+                    url = finalLink,
+                    label = "Основная ссылка",
+                    createdByUserId = active.id,
+                    createdByName = ownerName,
+                    isPrimary = true
+                )
             )
             com.example.ui.channel.ChannelCustomizationManager.linkDiscussionChat(
                 chatId = channelId,
@@ -1995,7 +2063,8 @@ class AppViewModel(
         replyToMessageId: String? = null,
         replyToMessageText: String? = null,
         mediaPath: String? = null,
-        mediaType: String? = null
+        mediaType: String? = null,
+        sendAsIdentity: com.example.ui.group.SendAsIdentity? = null
     ) {
         viewModelScope.launch {
             val sendStartTime = System.currentTimeMillis()
@@ -2045,6 +2114,21 @@ class AppViewModel(
                 isReply = replyToMessageId != null
             )
 
+            val activeAcc = activeAccount.value
+            val currentGroupMember = if (targetChat?.isGroup == true) {
+                repository.getGroupMemberSync(chatId, senderId)
+            } else null
+            val resolvedTag = sendAsIdentity?.customTag
+                ?: currentGroupMember?.customTitle?.takeIf { it.isNotBlank() }
+                ?: if (currentGroupMember?.role == "creator") "Владелец" else null
+            val resolvedIdentityId = sendAsIdentity?.id ?: senderId
+            val resolvedIdentityType = sendAsIdentity?.type ?: "PERSONAL"
+            val resolvedDisplayName = sendAsIdentity?.title
+                ?: activeAcc?.displayName?.takeIf { it.isNotBlank() }
+            val resolvedAvatarUrl = sendAsIdentity?.avatarUrl
+                ?: activeAcc?.profilePicUrl?.takeIf { it.isNotBlank() }
+            val resolvedEmojiStatus = sendAsIdentity?.emojiStatus
+
             val msg = Message(
                 id = messageId,
                 chatId = chatId,
@@ -2058,9 +2142,15 @@ class AppViewModel(
                 replyToMessageText = replyToMessageText,
                 isDelivered = isOnline, // if offline, it stays pending (not delivered)
                 mediaPath = mediaPath,
-                mediaType = mediaType
+                mediaType = mediaType,
+                senderIdentityId = resolvedIdentityId,
+                senderIdentityType = resolvedIdentityType,
+                senderDisplayName = resolvedDisplayName,
+                senderAvatarUrl = resolvedAvatarUrl,
+                senderCustomTag = resolvedTag,
+                senderEmojiStatus = resolvedEmojiStatus
             )
-            repository.insertMessageAndUpdateChat(msg, sanitizedText, "You")
+            repository.insertMessageAndUpdateChat(msg, sanitizedText, resolvedDisplayName ?: "You")
             repository.updateDraft(chatId, null)
             com.example.ui.rating.UserRatingManager.recordMessageActivity(
                 senderId.ifBlank { activeAccount.value?.id ?: "me" }
@@ -2068,9 +2158,9 @@ class AppViewModel(
 
             // Auto-forward new channel publications to the linked discussion group
             if (targetChat?.isChannel == true) {
-                val linkedGroupId = com.example.ui.channel.ChannelCustomizationManager
+                val channelCustom = com.example.ui.channel.ChannelCustomizationManager
                     .getCustomization(chatId)
-                    .discussionChatId
+                val linkedGroupId = channelCustom.discussionChatId
                 if (!linkedGroupId.isNullOrBlank() && linkedGroupId != chatId) {
                     val linkedGroup = repository.getChatById(linkedGroupId)
                     if (linkedGroup != null && linkedGroup.isGroup && !linkedGroup.isChannel) {
@@ -2088,7 +2178,13 @@ class AppViewModel(
                             isForwarded = true,
                             forwardOriginalSenderId = chatId,
                             forwardOriginalSenderName = targetChat.title,
-                            forwardHideSender = false
+                            forwardHideSender = false,
+                            senderIdentityId = chatId,
+                            senderIdentityType = "CHANNEL",
+                            senderDisplayName = targetChat.title,
+                            senderAvatarUrl = channelCustom.avatarUrl,
+                            senderCustomTag = "канал",
+                            senderEmojiStatus = channelCustom.emojiStatus
                         )
                         repository.insertMessageAndUpdateChat(fwdMsg, sanitizedText, targetChat.title)
                     }
@@ -2395,7 +2491,11 @@ class AppViewModel(
                     .removePrefix("http://")
                     .removePrefix("t.me/")
                     .removePrefix("@")
-                val finalLink = if (normalizedHandle.isNotBlank()) "t.me/$normalizedHandle" else "t.me/kuotex_${newChatId.take(6)}"
+                val finalLink = if (normalizedHandle.isNotBlank()) {
+                    "t.me/$normalizedHandle"
+                } else {
+                    com.example.ui.group.generateTelegramStyleInviteUrl(newChatId)
+                }
                 val defaultDesc = if (isChannel) "Добро пожаловать в канал «$name»." else "Добро пожаловать в группу «$name»."
                 com.example.ui.channel.ChannelCustomizationManager.initializeCreatedChannel(
                     chatId = newChatId,
@@ -2404,6 +2504,19 @@ class AppViewModel(
                     inviteLink = finalLink,
                     avatarUrl = photo.takeIf { it.isNotBlank() }
                 )
+                if (isGroup && !isChannel) {
+                    repository.insertInviteLink(
+                        com.example.ui.group.GroupInviteLinkEntity(
+                            id = java.util.UUID.randomUUID().toString(),
+                            chatId = newChatId,
+                            url = finalLink,
+                            label = "Основная ссылка",
+                            createdByUserId = ownerId,
+                            createdByName = ownerName,
+                            isPrimary = true
+                        )
+                    )
+                }
             }
             if (onCreated != null) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -2412,6 +2525,576 @@ class AppViewModel(
             }
         }
     }
+
+    // --- Group Management: Invite Links, Join Requests, Privacy Rules & Send As ---
+
+    fun observeGroupInviteLinks(chatId: String): Flow<List<com.example.ui.group.GroupInviteLinkEntity>> {
+        return repository.getInviteLinksForChat(chatId)
+    }
+
+    fun observePendingJoinRequests(chatId: String): Flow<List<com.example.ui.group.GroupJoinRequestEntity>> {
+        return repository.getPendingJoinRequests(chatId)
+    }
+
+    fun observeAllPrivacyRules(): Flow<Map<String, com.example.ui.group.GroupInvitePrivacy>> {
+        return repository.getAllPrivacyRules().map { list ->
+            list.associate { it.userId to com.example.ui.group.GroupInvitePrivacy.fromCode(it.groupInvitePrivacy) }
+        }
+    }
+
+    fun observeActiveUserGroupInvitePrivacy(): Flow<com.example.ui.group.GroupInvitePrivacy> {
+        return kotlinx.coroutines.flow.combine(activeAccount, observeAllPrivacyRules()) { acc, map ->
+            val uid = acc?.id ?: return@combine com.example.ui.group.GroupInvitePrivacy.EVERYBODY
+            map[uid] ?: com.example.ui.group.GroupInvitePrivacy.EVERYBODY
+        }
+    }
+
+    fun updateActiveUserGroupInvitePrivacy(policy: com.example.ui.group.GroupInvitePrivacy) {
+        val uid = activeAccount.value?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.upsertPrivacyRule(
+                com.example.ui.group.UserPrivacyRuleEntity(
+                    userId = uid,
+                    groupInvitePrivacy = policy.code,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    fun ensurePrimaryInviteLink(chatId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val links = repository.getInviteLinksForChatSync(chatId)
+            val activePrimary = links.firstOrNull { it.isPrimary && it.isActive() }
+            if (activePrimary == null) {
+                val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+                val existingCustom = com.example.ui.channel.ChannelCustomizationManager.getCustomization(chatId).inviteLink
+                val url = if (existingCustom.contains("+")) {
+                    com.example.ui.group.normalizeInvitePath(existingCustom)
+                } else {
+                    com.example.ui.group.generateTelegramStyleInviteUrl(chatId)
+                }
+                val newLink = com.example.ui.group.GroupInviteLinkEntity(
+                    id = java.util.UUID.randomUUID().toString(),
+                    chatId = chatId,
+                    url = url,
+                    label = "Основная ссылка",
+                    createdByUserId = active?.id ?: "system",
+                    createdByName = active?.displayName?.ifBlank { "Владелец" } ?: "Владелец",
+                    isPrimary = true
+                )
+                repository.insertInviteLink(newLink)
+                com.example.ui.channel.ChannelCustomizationManager.updatePrimaryInviteLink(chatId, url)
+            }
+        }
+    }
+
+    fun createCustomInviteLink(
+        chatId: String,
+        label: String,
+        expiresAt: Long?,
+        maxUses: Int?,
+        requiresApproval: Boolean,
+        onCreated: ((com.example.ui.group.GroupInviteLinkEntity) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+            val url = com.example.ui.group.generateTelegramStyleInviteUrl()
+            val entity = com.example.ui.group.GroupInviteLinkEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                chatId = chatId,
+                url = url,
+                label = label.trim(),
+                createdByUserId = active?.id ?: "system",
+                createdByName = active?.displayName?.ifBlank { "Администратор" } ?: "Администратор",
+                createdAt = System.currentTimeMillis(),
+                expiresAt = expiresAt,
+                maxUses = if (requiresApproval) null else maxUses,
+                usageCount = 0,
+                requiresApproval = requiresApproval,
+                isPrimary = false,
+                isRevoked = false
+            )
+            repository.insertInviteLink(entity)
+            com.example.ui.channel.ChannelCustomizationManager.recordAdminLog(
+                chatId = chatId,
+                title = "Создана пригласительная ссылка",
+                details = "${entity.label.ifBlank { entity.url }} (${if (requiresApproval) "по заявкам" else "свободный вход"})"
+            )
+            if (onCreated != null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onCreated(entity) }
+            }
+        }
+    }
+
+    fun resetPrimaryInviteLink(
+        chatId: String,
+        onReset: ((com.example.ui.group.GroupInviteLinkEntity) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+            repository.revokePrimaryLinks(chatId)
+            val newUrl = com.example.ui.group.generateTelegramStyleInviteUrl()
+            val newPrimary = com.example.ui.group.GroupInviteLinkEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                chatId = chatId,
+                url = newUrl,
+                label = "Основная ссылка",
+                createdByUserId = active?.id ?: "system",
+                createdByName = active?.displayName?.ifBlank { "Владелец" } ?: "Владелец",
+                createdAt = System.currentTimeMillis(),
+                isPrimary = true,
+                isRevoked = false
+            )
+            repository.insertInviteLink(newPrimary)
+            com.example.ui.channel.ChannelCustomizationManager.updatePrimaryInviteLink(chatId, newUrl)
+            com.example.ui.channel.ChannelCustomizationManager.recordAdminLog(
+                chatId = chatId,
+                title = "Сброшена основная ссылка",
+                details = "Новая ссылка: $newUrl"
+            )
+            if (onReset != null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onReset(newPrimary) }
+            }
+        }
+    }
+
+    fun revokeGroupInviteLink(chatId: String, linkId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.revokeInviteLink(linkId)
+            com.example.ui.channel.ChannelCustomizationManager.recordAdminLog(
+                chatId = chatId,
+                title = "Ссылка помечена неактивной",
+                details = "Пригласительная ссылка отозвана"
+            )
+        }
+    }
+
+    fun observeInvitableUsers(chatId: String): Flow<List<com.example.ui.group.InvitableUser>> {
+        return kotlinx.coroutines.flow.combine(
+            contacts,
+            accounts,
+            repository.getGroupMembers(chatId),
+            activeAccount
+        ) { contactList, accountList, currentMembers, active ->
+            val existingIds = currentMembers.map { it.userId }.toSet()
+            val activeId = active?.id
+            val map = linkedMapOf<String, com.example.ui.group.InvitableUser>()
+
+            contactList.forEach { contact ->
+                if (!existingIds.contains(contact.id) && contact.id != activeId) {
+                    val acc = accountList.find { it.id == contact.id }
+                    map[contact.id] = com.example.ui.group.InvitableUser(
+                        userId = contact.id,
+                        displayName = contact.name,
+                        username = acc?.username ?: "",
+                        avatarUrl = acc?.profilePicUrl?.takeIf { it.isNotBlank() },
+                        statusText = "был(а) недавно",
+                        isContact = true
+                    )
+                }
+            }
+            accountList.forEach { acc ->
+                if (!existingIds.contains(acc.id) && acc.id != activeId && !map.containsKey(acc.id)) {
+                    map[acc.id] = com.example.ui.group.InvitableUser(
+                        userId = acc.id,
+                        displayName = acc.displayName.ifBlank { acc.username },
+                        username = acc.username,
+                        avatarUrl = acc.profilePicUrl.takeIf { it.isNotBlank() },
+                        statusText = "был(а) недавно",
+                        isContact = false
+                    )
+                }
+            }
+            map.values.toList()
+        }
+    }
+
+    fun attemptAddGroupMembers(
+        chatId: String,
+        candidates: List<com.example.ui.group.InvitableUser>,
+        onResult: (com.example.ui.group.GroupAddMembersOutcome) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val inviterId = activeAccount.value?.id ?: "123456789"
+            val rules = repository.getAllPrivacyRules().firstOrNull().orEmpty()
+                .associate { it.userId to com.example.ui.group.GroupInvitePrivacy.fromCode(it.groupInvitePrivacy) }
+
+            val added = mutableListOf<com.example.ui.group.InvitableUser>()
+            val blocked = mutableListOf<com.example.ui.group.InvitableUser>()
+
+            candidates.forEach { candidate ->
+                val policy = rules[candidate.userId] ?: com.example.ui.group.GroupInvitePrivacy.EVERYBODY
+                val canDirectAdd = com.example.ui.group.canAddUserDirectlyToGroup(
+                    targetUserId = candidate.userId,
+                    targetPrivacy = policy,
+                    inviterUserId = inviterId,
+                    inviterIsInTargetContacts = candidate.isContact
+                )
+                if (canDirectAdd) {
+                    repository.insertGroupMember(
+                        GroupMember(
+                            chatId = chatId,
+                            userId = candidate.userId,
+                            userName = candidate.displayName,
+                            isAdmin = false,
+                            role = "subscriber",
+                            joinedAt = System.currentTimeMillis()
+                        )
+                    )
+                    com.example.ui.channel.ChannelCustomizationManager.consumeGreetingMessagesForNewMember(chatId, candidate.userId)
+                    added.add(candidate)
+                } else {
+                    blocked.add(candidate)
+                }
+            }
+
+            if (added.isNotEmpty()) {
+                val inviterName = activeAccount.value?.displayName?.ifBlank { "Администратор" } ?: "Администратор"
+                val namesJoined = added.joinToString(", ") { it.displayName }
+                val sysMsg = Message(
+                    id = java.util.UUID.randomUUID().toString(),
+                    chatId = chatId,
+                    senderId = "system_group_event",
+                    text = "$inviterName добавил(а) $namesJoined",
+                    timestamp = System.currentTimeMillis(),
+                    isDelivered = true,
+                    senderIdentityType = "SYSTEM"
+                )
+                repository.insertMessageAndUpdateChat(sysMsg, sysMsg.text, null)
+            }
+
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                onResult(com.example.ui.group.GroupAddMembersOutcome(added, blocked))
+            }
+        }
+    }
+
+    fun sendGroupInviteLinkToUsers(
+        groupChatId: String,
+        targetUsers: List<com.example.ui.group.InvitableUser>,
+        onComplete: (Int) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+            val inviterId = active?.id ?: "123456789"
+            val groupChat = repository.getChatById(groupChatId)
+            val links = repository.getInviteLinksForChatSync(groupChatId)
+            val activePrimary = links.firstOrNull { it.isPrimary && it.isActive() }
+                ?: links.firstOrNull { it.isActive() }
+            val invitePath = activePrimary?.url
+                ?: com.example.ui.group.normalizeInvitePath(
+                    com.example.ui.channel.ChannelCustomizationManager.getCustomization(groupChatId).inviteLink
+                ).ifBlank { com.example.ui.group.generateTelegramStyleInviteUrl(groupChatId) }
+
+            if (activePrimary == null) {
+                repository.insertInviteLink(
+                    com.example.ui.group.GroupInviteLinkEntity(
+                        id = java.util.UUID.randomUUID().toString(),
+                        chatId = groupChatId,
+                        url = invitePath,
+                        label = "Основная ссылка",
+                        createdByUserId = inviterId,
+                        createdByName = active?.displayName ?: "Владелец",
+                        isPrimary = true
+                    )
+                )
+            }
+
+            val fullUrl = "https://$invitePath"
+            val allChatsList = repository.allChats.firstOrNull().orEmpty()
+            var sentCount = 0
+
+            targetUsers.forEach { target ->
+                val dmChat = allChatsList.find { ch ->
+                    !ch.isGroup && !ch.isChannel && !ch.isBot && (
+                        ch.id == target.userId ||
+                            ch.id == "dm_${target.userId}" ||
+                            (target.username.isNotBlank() && ch.title.equals(target.username, ignoreCase = true)) ||
+                            ch.title.equals(target.displayName, ignoreCase = true)
+                        )
+                } ?: Chat(
+                    id = "dm_${target.userId}",
+                    title = target.displayName,
+                    isGroup = false,
+                    isChannel = false,
+                    isBot = false,
+                    lastMessage = fullUrl,
+                    isContact = target.isContact
+                ).also { repository.insertChat(it) }
+
+                val cardJson = org.json.JSONObject().apply {
+                    put("type", "group_invite_card")
+                    put("groupId", groupChatId)
+                    put("groupTitle", groupChat?.title ?: "Группа KuoteX")
+                    put("inviteUrl", invitePath)
+                    put("requiresApproval", activePrimary?.requiresApproval == true)
+                }.toString()
+
+                val msg = Message(
+                    id = java.util.UUID.randomUUID().toString(),
+                    chatId = dmChat.id,
+                    senderId = inviterId,
+                    text = fullUrl,
+                    timestamp = System.currentTimeMillis(),
+                    isDelivered = true,
+                    documentData = cardJson,
+                    senderIdentityId = inviterId,
+                    senderIdentityType = "PERSONAL",
+                    senderDisplayName = active?.displayName ?: "Вы"
+                )
+                repository.insertMessageAndUpdateChat(msg, "Приглашение в группу «${groupChat?.title ?: "Группа"}»", active?.displayName)
+                sentCount++
+            }
+
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                onComplete(sentCount)
+            }
+        }
+    }
+
+    fun resolveInviteLinkForPreview(
+        rawUrl: String,
+        onResult: (com.example.ui.group.InvitePreviewResolution) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val normalized = com.example.ui.group.normalizeInvitePath(rawUrl)
+            val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+            val allLinks = repository.getAllInviteLinks().firstOrNull().orEmpty()
+            val matchedLink = allLinks.find { com.example.ui.group.normalizeInvitePath(it.url) == normalized }
+            val fallbackChatId = if (matchedLink == null) {
+                com.example.ui.channel.ChannelCustomizationManager.getAllCustomizationsFlow().value.entries
+                    .firstOrNull { com.example.ui.group.normalizeInvitePath(it.value.inviteLink) == normalized }
+                    ?.key
+            } else null
+
+            val targetChatId = matchedLink?.chatId ?: fallbackChatId
+            val chat = targetChatId?.let { repository.getChatById(it) }
+            if (targetChatId == null || chat == null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(
+                        com.example.ui.group.InvitePreviewResolution(
+                            isValid = false,
+                            errorMessage = "Пригласительная ссылка не найдена или больше недействительна"
+                        )
+                    )
+                }
+                return@launch
+            }
+
+            val inactiveReason = matchedLink?.inactiveReason()
+            if (inactiveReason != null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(
+                        com.example.ui.group.InvitePreviewResolution(
+                            isValid = false,
+                            errorMessage = inactiveReason,
+                            chat = chat,
+                            link = matchedLink
+                        )
+                    )
+                }
+                return@launch
+            }
+
+            val members = repository.getGroupMembers(targetChatId).firstOrNull().orEmpty()
+            val currentMember = com.example.ui.channel.findCurrentChannelMember(members, active)
+            val custom = com.example.ui.channel.ChannelCustomizationManager.getCustomization(targetChatId)
+            val pendingReq = active?.let { repository.getPendingRequestForUser(targetChatId, it.id) }
+            val approvalNeeded = (matchedLink?.requiresApproval == true) || custom.discussionJoinRequestsRequired
+
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                onResult(
+                    com.example.ui.group.InvitePreviewResolution(
+                        isValid = true,
+                        chat = chat,
+                        link = matchedLink,
+                        memberCount = members.size.coerceAtLeast(1),
+                        requiresApproval = approvalNeeded,
+                        isAlreadyMember = currentMember != null,
+                        hasPendingRequest = pendingReq != null,
+                        canSeePrivateBadge = com.example.ui.group.canSeePrivateGroupBadge(currentMember),
+                        isPublic = custom.isPublic,
+                        avatarUrl = custom.avatarUrl
+                    )
+                )
+            }
+        }
+    }
+
+    fun joinOrRequestViaInviteLink(
+        rawUrl: String,
+        onResult: (Boolean, String, String?) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val normalized = com.example.ui.group.normalizeInvitePath(rawUrl)
+            val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+            if (active == null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(false, "Необходимо войти в аккаунт", null)
+                }
+                return@launch
+            }
+            val allLinks = repository.getAllInviteLinks().firstOrNull().orEmpty()
+            val matchedLink = allLinks.find { com.example.ui.group.normalizeInvitePath(it.url) == normalized }
+            val fallbackChatId = if (matchedLink == null) {
+                com.example.ui.channel.ChannelCustomizationManager.getAllCustomizationsFlow().value.entries
+                    .firstOrNull { com.example.ui.group.normalizeInvitePath(it.value.inviteLink) == normalized }
+                    ?.key
+            } else null
+
+            val targetChatId = matchedLink?.chatId ?: fallbackChatId
+            val chat = targetChatId?.let { repository.getChatById(it) }
+            if (targetChatId == null || chat == null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(false, "Ссылка недействительна", null)
+                }
+                return@launch
+            }
+
+            val inactiveReason = matchedLink?.inactiveReason()
+            if (inactiveReason != null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(false, inactiveReason, null)
+                }
+                return@launch
+            }
+
+            val existingMember = repository.getGroupMemberSync(targetChatId, active.id)
+            if (existingMember != null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(true, "Вы уже состоите в группе «${chat.title}»", targetChatId)
+                }
+                return@launch
+            }
+
+            val custom = com.example.ui.channel.ChannelCustomizationManager.getCustomization(targetChatId)
+            val requiresApproval = (matchedLink?.requiresApproval == true) || custom.discussionJoinRequestsRequired
+            val displayName = active.displayName.ifBlank { active.username.ifBlank { "Пользователь" } }
+
+            if (requiresApproval) {
+                val existingReq = repository.getPendingRequestForUser(targetChatId, active.id)
+                if (existingReq == null) {
+                    repository.insertJoinRequest(
+                        com.example.ui.group.GroupJoinRequestEntity(
+                            id = java.util.UUID.randomUUID().toString(),
+                            chatId = targetChatId,
+                            userId = active.id,
+                            userName = displayName,
+                            userAvatarUrl = active.profilePicUrl,
+                            inviteLinkId = matchedLink?.id,
+                            inviteLinkLabel = matchedLink?.label ?: "",
+                            status = com.example.ui.group.GroupJoinRequestEntity.STATUS_PENDING,
+                            requestedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(true, "Заявка на вступление отправлена администраторам", null)
+                }
+            } else {
+                repository.insertGroupMember(
+                    GroupMember(
+                        chatId = targetChatId,
+                        userId = active.id,
+                        userName = displayName,
+                        isAdmin = false,
+                        role = "subscriber",
+                        joinedAt = System.currentTimeMillis()
+                    )
+                )
+                if (matchedLink != null) {
+                    repository.incrementInviteUsageCount(matchedLink.id)
+                }
+                com.example.ui.channel.ChannelCustomizationManager.consumeGreetingMessagesForNewMember(targetChatId, active.id)
+                val sysMsg = Message(
+                    id = java.util.UUID.randomUUID().toString(),
+                    chatId = targetChatId,
+                    senderId = "system_group_event",
+                    text = "$displayName вступил(а) в группу по ссылке",
+                    timestamp = System.currentTimeMillis(),
+                    isDelivered = true,
+                    senderIdentityType = "SYSTEM"
+                )
+                repository.insertMessageAndUpdateChat(sysMsg, sysMsg.text, null)
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onResult(true, "Вы вступили в группу «${chat.title}»", targetChatId)
+                }
+            }
+        }
+    }
+
+    fun approveJoinRequest(request: com.example.ui.group.GroupJoinRequestEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateJoinRequestStatus(
+                request.id,
+                com.example.ui.group.GroupJoinRequestEntity.STATUS_APPROVED
+            )
+            repository.insertGroupMember(
+                GroupMember(
+                    chatId = request.chatId,
+                    userId = request.userId,
+                    userName = request.userName,
+                    isAdmin = false,
+                    role = "subscriber",
+                    joinedAt = System.currentTimeMillis()
+                )
+            )
+            if (!request.inviteLinkId.isNullOrBlank()) {
+                repository.incrementInviteUsageCount(request.inviteLinkId)
+            }
+            com.example.ui.channel.ChannelCustomizationManager.consumeGreetingMessagesForNewMember(request.chatId, request.userId)
+            val sysMsg = Message(
+                id = java.util.UUID.randomUUID().toString(),
+                chatId = request.chatId,
+                senderId = "system_group_event",
+                text = "${request.userName} был(а) принят(а) в группу",
+                timestamp = System.currentTimeMillis(),
+                isDelivered = true,
+                senderIdentityType = "SYSTEM"
+            )
+            repository.insertMessageAndUpdateChat(sysMsg, sysMsg.text, null)
+            com.example.ui.channel.ChannelCustomizationManager.recordAdminLog(
+                chatId = request.chatId,
+                title = "Одобрена заявка",
+                details = "${request.userName} принят(а) в группу"
+            )
+        }
+    }
+
+    fun declineJoinRequest(request: com.example.ui.group.GroupJoinRequestEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateJoinRequestStatus(
+                request.id,
+                com.example.ui.group.GroupJoinRequestEntity.STATUS_DECLINED
+            )
+            com.example.ui.channel.ChannelCustomizationManager.recordAdminLog(
+                chatId = request.chatId,
+                title = "Отклонена заявка",
+                details = "Заявка пользователя ${request.userName} отклонена"
+            )
+        }
+    }
+
+    fun observeAvailableSendAsIdentities(groupChatId: String): Flow<List<com.example.ui.group.SendAsIdentity>> {
+        return kotlinx.coroutines.flow.combine(
+            chats,
+            activeAccount,
+            repository.getAllGroupMembers(),
+            com.example.ui.channel.ChannelCustomizationManager.getAllCustomizationsFlow()
+        ) { allChats, active, allMembers, customizations ->
+            val groupChat = allChats.find { it.id == groupChatId } ?: return@combine emptyList()
+            val byChat = allMembers.groupBy { it.chatId }
+            com.example.ui.group.resolveAvailableSendAsIdentities(
+                groupChat = groupChat,
+                activeAccount = active,
+                allChats = allChats,
+                allMembersByChat = byChat,
+                customizations = customizations
+            )
+        }
+    }
+
     fun toggleArchive(chatId: String, isArchived: Boolean) {
         viewModelScope.launch {
             val chat = repository.allChats.firstOrNull()?.find { it.id == chatId }

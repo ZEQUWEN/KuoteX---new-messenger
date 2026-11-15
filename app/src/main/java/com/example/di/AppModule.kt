@@ -77,6 +77,9 @@ val databaseModule = module {
     single { get<AppDatabase>().paymentTransactionDao() }
     single { get<AppDatabase>().queuedMessageDao() }
     single { get<AppDatabase>().userRatingDao() }
+    single { get<AppDatabase>().groupInviteLinkDao() }
+    single { get<AppDatabase>().groupJoinRequestDao() }
+    single { get<AppDatabase>().userPrivacyRuleDao() }
 
     // Central Data Repository
     single<MessengerRepository> {
@@ -91,7 +94,10 @@ val databaseModule = module {
             paymentTransactionDao = get(),
             queuedMessageDao = get(),
             sharedPrefs = get<SharedPreferences>(),
-            webSocketManager = get()
+            webSocketManager = get(),
+            groupInviteLinkDao = get(),
+            groupJoinRequestDao = get(),
+            userPrivacyRuleDao = get()
         )
     }
 }

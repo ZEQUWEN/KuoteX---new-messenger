@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,6 +78,7 @@ fun ChannelProfileScreen(
     val chats by viewModel.chats.collectAsStateWithLifecycle()
     val chat = chats.find { it.id == chatId }
     val isChannel = chat?.isChannel == true
+    val isGroup = chat?.isGroup == true && !isChannel
 
     val customizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val customization = customizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
@@ -90,11 +92,13 @@ fun ChannelProfileScreen(
 
     val members by viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList())
     val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
+    val currentMember = findCurrentChannelMember(members, activeAccount)
     val isAdmin = isChannelAdminOrCreator(members, activeAccount)
     val adminsCount = members.count {
         it.isAdmin || it.role == "creator" || it.role == "admin"
     }.coerceAtLeast(1)
-    val subscribersCount = maxOf(customization.subscriberCount, members.size)
+    val subscribersCount = if (isGroup) members.size.coerceAtLeast(1) else maxOf(customization.subscriberCount, members.size)
+    val pendingJoinRequests by viewModel.observePendingJoinRequests(chatId).collectAsStateWithLifecycle(initialValue = emptyList())
     val pollsMap by ChannelCustomizationManager.getPollsFlow(chatId).collectAsState()
     val polls = pollsMap[chatId] ?: emptyList()
 
@@ -806,15 +810,23 @@ fun ChannelProfileScreen(
 
                             Spacer(Modifier.height(4.dp))
 
-                            // Subtitle matching Telegram screenshot ("публичный канал" / "частный канал")
+                            // Subtitle: group type ("частная группа" / "публичная группа") without member count
+                            // ONLY for creator or co-owner with all rights; regular members & partial admins
+                            // see strictly live member count without group type.
                             Text(
                                 text = when {
-                                    chat?.isGroup == true -> "$subscribersCount участников"
+                                    isGroup ->
+                                        com.example.ui.group.formatGroupSubtitle(
+                                            member = currentMember,
+                                            isPublic = customization.isPublic,
+                                            memberCount = subscribersCount
+                                        )
                                     customization.isPublic -> "публичный канал"
                                     else -> "частный канал"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.7f)
+                                color = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.testTag("channel_profile_subtitle")
                             )
                         }
                     }
@@ -1083,7 +1095,7 @@ fun ChannelProfileScreen(
                 }
             }
 
-            // --- SECTION CARD: SUBSCRIBERS, ADMINS, SETTINGS (Admins only) ---
+            // --- SECTION CARD: MEMBERS / SUBSCRIBERS, ADMINS, INVITES, REQUESTS, SETTINGS (Admins only) ---
             if (isAdmin) {
                 item {
                     Surface(
@@ -1093,10 +1105,25 @@ fun ChannelProfileScreen(
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
                     ) {
                         Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                            // 1. Подписчики
+                            if (isGroup) {
+                                TelegramProfileListRow(
+                                    icon = Icons.Filled.PersonAdd,
+                                    title = "Добавить участников",
+                                    badgeValue = "",
+                                    onClick = {
+                                        navController.navigateSafe(com.example.ui.navigation.AppDestinations.groupAddMembers(chatId))
+                                    }
+                                )
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(start = 56.dp),
+                                    color = Color.White.copy(alpha = 0.06f)
+                                )
+                            }
+
+                            // 1. Участники / Подписчики
                             TelegramProfileListRow(
                                 icon = Icons.Filled.People,
-                                title = "Подписчики",
+                                title = if (isGroup) "Участники" else "Подписчики",
                                 badgeValue = "$subscribersCount",
                                 onClick = {
                                     navController.navigateSafe("channel_admin/$chatId/subscribers")
@@ -1107,6 +1134,21 @@ fun ChannelProfileScreen(
                                 modifier = Modifier.padding(start = 56.dp),
                                 color = Color.White.copy(alpha = 0.06f)
                             )
+
+                            if (isGroup && pendingJoinRequests.isNotEmpty()) {
+                                TelegramProfileListRow(
+                                    icon = Icons.Filled.HowToReg,
+                                    title = "Заявки на вступление",
+                                    badgeValue = "${pendingJoinRequests.size}",
+                                    onClick = {
+                                        navController.navigateSafe(com.example.ui.navigation.AppDestinations.groupJoinRequests(chatId))
+                                    }
+                                )
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(start = 56.dp),
+                                    color = Color.White.copy(alpha = 0.06f)
+                                )
+                            }
 
                             // 2. Администраторы
                             TelegramProfileListRow(
@@ -1123,15 +1165,106 @@ fun ChannelProfileScreen(
                                 color = Color.White.copy(alpha = 0.06f)
                             )
 
-                            // 3. Настройки канала
+                            // 3. Приглашения
+                            TelegramProfileListRow(
+                                icon = Icons.Filled.Link,
+                                title = "Пригласительные ссылки",
+                                badgeValue = "",
+                                onClick = {
+                                    navController.navigateSafe(com.example.ui.navigation.AppDestinations.groupInviteLinks(chatId))
+                                }
+                            )
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 56.dp),
+                                color = Color.White.copy(alpha = 0.06f)
+                            )
+
+                            // 4. Настройки канала / группы
                             TelegramProfileListRow(
                                 icon = Icons.Filled.Settings,
-                                title = "Настройки канала",
+                                title = if (isGroup) "Настройки группы" else "Настройки канала",
                                 badgeValue = "",
                                 onClick = {
                                     navController.navigateSafe("channel_admin/$chatId")
                                 }
                             )
+                        }
+                    }
+                }
+            }
+
+            // --- GROUP PARTICIPANTS PREVIEW LIST (Visible to all group participants) ---
+            if (isGroup && members.isNotEmpty()) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF161E2E),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                    ) {
+                        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                            Text(
+                                text = "Участники (${members.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2AABEE),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
+                            members.forEachIndexed { idx, member ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            navController.navigateSafe("profile/${member.userId}")
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    com.example.ui.group.GroupSenderAvatar(
+                                        avatarUrl = null,
+                                        displayName = member.userName,
+                                        seed = member.userId,
+                                        size = 40.dp
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = member.userName,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 15.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = if (member.role == "creator" || member.isAdmin || member.role == "admin") "в сети" else "был(а) недавно",
+                                            color = if (member.role == "creator" || member.isAdmin || member.role == "admin") Color(0xFF2AABEE) else Color.White.copy(alpha = 0.5f),
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                    val roleLabel = when {
+                                        member.customTitle.isNotBlank() -> member.customTitle
+                                        member.role == "creator" -> "Владелец"
+                                        member.isAdmin || member.role == "admin" -> "админ"
+                                        else -> ""
+                                    }
+                                    if (roleLabel.isNotEmpty()) {
+                                        Text(
+                                            text = roleLabel,
+                                            color = Color(0xFF2AABEE),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                                if (idx < members.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 68.dp),
+                                        color = Color.White.copy(alpha = 0.06f)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

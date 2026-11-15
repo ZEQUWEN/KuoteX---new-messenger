@@ -60,6 +60,8 @@ import androidx.compose.ui.semantics.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.ui.channel.*
+import com.example.ui.group.*
+import androidx.compose.ui.platform.testTag
 
 @Composable
 fun Modifier.telegramMessageGestures(
@@ -448,8 +450,19 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     val parentLinkedChannel = remember(parentLinkedChannelCustom, chats) {
         parentLinkedChannelCustom?.let { custom -> chats.find { it.id == custom.chatId && it.isChannel } }
     }
-    var groupSendAsMode by remember(chatId) { mutableStateOf("PERSONAL") } // "PERSONAL", "GROUP", "CHANNEL"
+    val availableSendAsIdentities by viewModel.observeAvailableSendAsIdentities(chatId)
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    var selectedSendAsIdentity by remember(chatId) { mutableStateOf<SendAsIdentity?>(null) }
+    val activeSendAsIdentity = remember(availableSendAsIdentities, selectedSendAsIdentity) {
+        availableSendAsIdentities.find {
+            it.id == selectedSendAsIdentity?.id && it.type == selectedSendAsIdentity?.type
+        } ?: availableSendAsIdentities.firstOrNull()
+    }
     var showSendAsMenu by remember { mutableStateOf(false) }
+    val pendingJoinRequests by if (chat.isGroup && isChannelOrGroupAdmin) {
+        viewModel.observePendingJoinRequests(chatId).collectAsStateWithLifecycle(initialValue = emptyList())
+    } else remember { mutableStateOf(emptyList()) }
+    var invitePreviewResolution by remember { mutableStateOf<InvitePreviewResolution?>(null) }
     val channelGreetingMessages = remember(channelCustomization) {
         ChannelCustomizationManager.getEffectiveGreetingMessages(channelCustomization)
     }
@@ -605,11 +618,11 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     } else if (chat.isChannel) {
                         channelSubText
                     } else if (chat.isGroup) {
-                        if (parentLinkedChannel != null) {
-                            if (channelCustomization.isPublic) "обсуждение · $groupSubText" else "частная группа · $groupSubText"
-                        } else {
-                            groupSubText
-                        }
+                        com.example.ui.group.formatGroupSubtitle(
+                            member = currentChannelMember,
+                            isPublic = channelCustomization.isPublic,
+                            memberCount = subCount
+                        )
                     } else {
                         when {
                             isTyping -> "печатает..."
@@ -1286,71 +1299,26 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                 navController.navigate("chat/${linkedDiscussionGroup.id}")
                             }
                         )
-                    } else if (chat.isGroup && parentLinkedChannel != null && isChannelOrGroupAdmin) {
+                    } else if (chat.isGroup && availableSendAsIdentities.isNotEmpty() && activeSendAsIdentity != null) {
                         Box {
-                            val currentIdentityTitle = when (groupSendAsMode) {
-                                "GROUP" -> chat.title
-                                "CHANNEL" -> parentLinkedChannel.title
-                                else -> activeAccount?.displayName?.ifBlank { "Вы" } ?: "Вы"
-                            }
-                            val currentIdentityId = when (groupSendAsMode) {
-                                "GROUP" -> chat.id
-                                "CHANNEL" -> parentLinkedChannel.id
-                                else -> activeAccount?.id ?: "me"
-                            }
                             com.example.ui.channel.LinkedGroupAvatar(
-                                groupId = currentIdentityId,
-                                groupTitle = currentIdentityTitle,
-                                avatarUrl = when (groupSendAsMode) {
-                                    "GROUP" -> channelCustomization.avatarUrl
-                                    "CHANNEL" -> parentLinkedChannelCustom?.avatarUrl
-                                    else -> activeAccount?.profilePicUrl
-                                },
+                                groupId = activeSendAsIdentity.id,
+                                groupTitle = activeSendAsIdentity.title,
+                                avatarUrl = activeSendAsIdentity.avatarUrl,
                                 avatarSize = 32.dp,
                                 testTag = "group_send_as_avatar_button",
                                 onClick = { showSendAsMenu = true }
                             )
-                            DropdownMenu(
+                            SendAsIdentityMenu(
                                 expanded = showSendAsMenu,
-                                onDismissRequest = { showSendAsMenu = false }
-                            ) {
-                                Text(
-                                    text = "Написать от имени...",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("${chat.title} (Анонимно)") },
-                                    onClick = {
-                                        groupSendAsMode = "GROUP"
-                                        showSendAsMenu = false
-                                    },
-                                    trailingIcon = if (groupSendAsMode == "GROUP") {
-                                        { Icon(Icons.Filled.Check, contentDescription = "Выбрано") }
-                                    } else null
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("${parentLinkedChannel.title} (Канал)") },
-                                    onClick = {
-                                        groupSendAsMode = "CHANNEL"
-                                        showSendAsMenu = false
-                                    },
-                                    trailingIcon = if (groupSendAsMode == "CHANNEL") {
-                                        { Icon(Icons.Filled.Check, contentDescription = "Выбрано") }
-                                    } else null
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(activeAccount?.displayName?.ifBlank { "Личный профиль" } ?: "Личный профиль") },
-                                    onClick = {
-                                        groupSendAsMode = "PERSONAL"
-                                        showSendAsMenu = false
-                                    },
-                                    trailingIcon = if (groupSendAsMode == "PERSONAL") {
-                                        { Icon(Icons.Filled.Check, contentDescription = "Выбрано") }
-                                    } else null
-                                )
-                            }
+                                identities = availableSendAsIdentities,
+                                selectedIdentity = activeSendAsIdentity,
+                                onSelect = { identity ->
+                                    selectedSendAsIdentity = identity
+                                    showSendAsMenu = false
+                                },
+                                onDismiss = { showSendAsMenu = false }
+                            )
                         }
                     }
 
@@ -1517,8 +1485,8 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                             placeholder = {
                                 Text(
                                     when {
-                                        chat.isGroup && parentLinkedChannel != null && groupSendAsMode == "GROUP" -> "Анонимное сооб..."
-                                        chat.isGroup && parentLinkedChannel != null && groupSendAsMode == "CHANNEL" -> "От имени канала..."
+                                        chat.isGroup && activeSendAsIdentity?.type == "GROUP" -> "Анонимное сооб..."
+                                        chat.isGroup && activeSendAsIdentity?.type == "CHANNEL" -> "От имени ${activeSendAsIdentity.title}..."
                                         else -> "Сообщение..."
                                     }
                                 )
@@ -1566,14 +1534,15 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                                 )
                                             )
                                             viewModel.sendMessage(
-                                                chatId = chatId, 
-                                                senderId = activeAccount?.id ?: "", 
-                                                text = inputText, 
-                                                audioPath = null, 
+                                                chatId = chatId,
+                                                senderId = activeAccount?.id ?: "",
+                                                text = inputText,
+                                                audioPath = null,
                                                 expiresIn = expiresIn,
                                                 documentData = null,
                                                 replyToMessageId = replyingToMessage?.id,
-                                                replyToMessageText = customQuoteText ?: replyingToMessage?.text
+                                                replyToMessageText = customQuoteText ?: replyingToMessage?.text,
+                                                sendAsIdentity = if (chat.isGroup) activeSendAsIdentity else null
                                             )
                                             inputText = ""
                                             replyingToMessage = null
@@ -2727,6 +2696,37 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
 
 
 
+            if (chat.isGroup && isChannelOrGroupAdmin && pendingJoinRequests.isNotEmpty()) {
+                GroupJoinRequestsBanner(
+                    requests = pendingJoinRequests,
+                    onClick = {
+                        navController.navigate(com.example.ui.navigation.AppDestinations.groupJoinRequests(chatId))
+                    }
+                )
+            }
+
+            if (invitePreviewResolution != null) {
+                val preview = invitePreviewResolution!!
+                GroupInviteJoinPreviewSheet(
+                    resolution = preview,
+                    onJoinOrRequest = {
+                        val urlToJoin = preview.link?.url ?: preview.chat?.id ?: return@GroupInviteJoinPreviewSheet
+                        viewModel.joinOrRequestViaInviteLink(urlToJoin) { success, msg, joinedChatId ->
+                            invitePreviewResolution = null
+                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            if (success && joinedChatId != null) {
+                                navController.navigate("chat/$joinedChatId")
+                            }
+                        }
+                    },
+                    onOpenGroup = { targetId ->
+                        invitePreviewResolution = null
+                        navController.navigate("chat/$targetId")
+                    },
+                    onDismiss = { invitePreviewResolution = null }
+                )
+            }
+
             val canScrollForward by remember { derivedStateOf { listState.canScrollForward } }
             val prevMessageCount = remember { mutableIntStateOf(0) }
             
@@ -2922,14 +2922,33 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                 )
                             )
                         ) {
+                        if (message.senderIdentityType == "SYSTEM" || message.senderId == "system_group_event") {
+                            GroupSystemEventPill(text = message.text)
+                        } else {
+                        val isChannelOrAnonIdentity = message.senderIdentityType == "CHANNEL" || message.senderIdentityType == "GROUP"
+                        val isMe = message.senderId == activeAccount?.id && !isChannelOrAnonIdentity
                         var senderName: String? = null
                         var senderStatus: String? = null
+                        var senderCustomTag: String? = message.senderCustomTag
+                        var senderEmoji: String? = message.senderEmojiStatus
+                        var senderAvatarUrl: String? = message.senderAvatarUrl
                         var isBot = false
-                        if (!isMe) {
+                        val authorTargetId = message.senderIdentityId?.takeIf { it.isNotBlank() } ?: message.senderId
+
+                        if (isChannelOrAnonIdentity) {
+                            senderName = message.senderDisplayName?.takeIf { it.isNotBlank() } ?: chat.title
+                            if (senderCustomTag.isNullOrBlank() && message.senderIdentityType == "CHANNEL") {
+                                senderCustomTag = "канал"
+                            }
+                        } else if (!isMe) {
                             if (chat.isGroup) {
                                 val member = groupMembers.find { it.userId == message.senderId }
-                                senderName = member?.userName ?: message.senderId
+                                senderName = message.senderDisplayName?.takeIf { it.isNotBlank() } ?: member?.userName ?: message.senderId
                                 isBot = message.senderId.startsWith("bot_")
+                                if (senderCustomTag.isNullOrBlank()) {
+                                    senderCustomTag = member?.customTitle?.takeIf { it.isNotBlank() }
+                                        ?: if (member?.role == "creator") "Владелец" else null
+                                }
                             } else {
                                 if (chat.isBot) {
                                     senderName = chat.title
@@ -2939,8 +2958,13 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                 }
                             }
                         } else {
-                            senderName = activeAccount?.displayName
+                            senderName = message.senderDisplayName?.takeIf { it.isNotBlank() } ?: activeAccount?.displayName
                             senderStatus = activeAccount?.customStatus
+                            if (chat.isGroup && senderCustomTag.isNullOrBlank()) {
+                                val member = groupMembers.find { it.userId == message.senderId }
+                                senderCustomTag = member?.customTitle?.takeIf { it.isNotBlank() }
+                                    ?: if (member?.role == "creator") "Владелец" else null
+                            }
                         }
                         val isSelected = selectedMessageIds.contains(message.id)
                         Row(
@@ -2957,7 +2981,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                         }
                                     } else Modifier
                                 ),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.Bottom
                         ) {
                             if (isSelectionMode) {
                                 Box(
@@ -2984,6 +3008,20 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                         )
                                     }
                                 }
+                            }
+                            if (chat.isGroup && !isMe && !isSelectionMode) {
+                                GroupSenderAvatar(
+                                    avatarUrl = senderAvatarUrl,
+                                    displayName = senderName ?: "U",
+                                    seed = authorTargetId,
+                                    size = 34.dp,
+                                    onClick = {
+                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
+                                        navController.navigate("profile/$authorTargetId")
+                                    }
+                                )
+                                Spacer(Modifier.width(8.dp))
                             }
                             Box(modifier = Modifier.weight(1f)) {
                                 val matchedPoll = remember(message.id, channelPolls, message.documentData, message.text) {
@@ -3014,6 +3052,9 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                     MessageBubble(
                                         senderName = senderName,
                                         senderStatus = senderStatus,
+                                        senderCustomTag = senderCustomTag,
+                                        senderEmojiStatus = senderEmoji,
+                                        isGroupChat = chat.isGroup,
                                         isBot = isBot,
                                         isSelectionMode = isSelectionMode,
                                         isSelected = isSelected,
@@ -3036,7 +3077,13 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                         onAuthorClick = { authorId ->
                                             focusManager.clearFocus()
                                             keyboardController?.hide()
-                                            navController.navigate("profile/$authorId")
+                                            val resolvedId = if (authorId == message.senderId) authorTargetId else authorId
+                                            navController.navigate("profile/$resolvedId")
+                                        },
+                                        onOpenInviteUrl = { rawInviteUrl ->
+                                            viewModel.resolveInviteLinkForPreview(rawInviteUrl) { resolution ->
+                                                invitePreviewResolution = resolution
+                                            }
                                         },
                                         onButtonClick = { buttonText ->
                                             if (buttonText.startsWith("Sandbox::")) {
@@ -3073,6 +3120,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                     )
                                 }
                             }
+                        }
                         }
                     }
                     }
@@ -4652,12 +4700,16 @@ fun MessageBubble(
     isMe: Boolean, 
     senderName: String? = null, 
     senderStatus: String? = null, 
+    senderCustomTag: String? = null,
+    senderEmojiStatus: String? = null,
+    isGroupChat: Boolean = false,
     isBot: Boolean = false,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
     onClick: () -> Unit, 
     onLongClick3s: () -> Unit, 
     onAuthorClick: ((String) -> Unit)? = null,
+    onOpenInviteUrl: ((String) -> Unit)? = null,
     onButtonClick: ((String) -> Unit)? = null,
     onImageClick: ((LightboxMediaItem) -> Unit)? = null,
     onOpenVideoNote: (() -> Unit)? = null
@@ -4774,7 +4826,7 @@ fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
     ) {
-        if (senderName != null) {
+        if (senderName != null && !isGroupChat) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 2.dp, start = if(isMe) 0.dp else 8.dp, end = if(isMe) 8.dp else 0.dp)) {
                 if (isBot) {
                     Icon(Icons.Filled.SmartToy, contentDescription = "Бот", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
@@ -4822,6 +4874,46 @@ fun MessageBubble(
                 .padding(12.dp)
         ) {
             Column {
+                if (isGroupChat && senderName != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .clickable(enabled = onAuthorClick != null) {
+                                    onAuthorClick?.invoke(message.senderIdentityId ?: message.senderId)
+                                }
+                        ) {
+                            Text(
+                                text = senderName,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = if (isMe) MaterialTheme.colorScheme.onPrimary else Color(0xFFFF8A50),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            if (!senderEmojiStatus.isNullOrBlank()) {
+                                Spacer(Modifier.width(4.dp))
+                                Text(text = senderEmojiStatus, fontSize = 12.sp)
+                            }
+                        }
+                        if (!senderCustomTag.isNullOrBlank()) {
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                text = senderCustomTag,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                color = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
                 // Telegram-style Forwarded Message Header
                 if (message.isForwarded && !message.forwardHideSender && !message.forwardOriginalSenderName.isNullOrBlank()) {
                     val authorId = message.forwardOriginalSenderId?.takeIf { it.isNotBlank() } ?: message.chatId
@@ -5011,6 +5103,12 @@ fun MessageBubble(
                             }
                         }
                     }
+                } else if (message.documentData?.contains("\"type\":\"group_invite_card\"") == true) {
+                    GroupInviteMessageCard(
+                        documentData = message.documentData,
+                        isMe = isMe,
+                        onOpenInviteUrl = { inviteUrl -> onOpenInviteUrl?.invoke(inviteUrl) }
+                    )
                 } else if (message.documentData != null) {
                     val documentData = message.documentData
                     val parsedData = androidx.compose.runtime.remember(documentData) {
@@ -5098,12 +5196,31 @@ fun MessageBubble(
                         Text(message.text, color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
                     }
                 } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (message.isE2EEncrypted) {
-                            Icon(Icons.Filled.Lock, contentDescription = "Encrypted", modifier = Modifier.size(12.dp), tint = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha=0.6f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.6f))
-                            Spacer(Modifier.width(4.dp))
+                    val hasInviteLink = remember(message.text) {
+                        message.text.contains("t.me/+", ignoreCase = true)
+                    }
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (message.isE2EEncrypted) {
+                                Icon(Icons.Filled.Lock, contentDescription = "Encrypted", modifier = Modifier.size(12.dp), tint = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha=0.6f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.6f))
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Text(message.text, color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
                         }
-                        Text(message.text, color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                        if (hasInviteLink && onOpenInviteUrl != null) {
+                            val extractedUrl = remember(message.text) {
+                                Regex("(https?://)?t\\.me/\\+[A-Za-z0-9_-]+")
+                                    .find(message.text)?.value ?: message.text.trim()
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            OutlinedButton(
+                                onClick = { onOpenInviteUrl(extractedUrl) },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text("Открыть приглашение", fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
                 

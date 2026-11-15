@@ -24,6 +24,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.NavType
 import com.example.ui.*
 import com.example.ui.channel.*
+import com.example.ui.group.*
 import com.example.ui.auth.AuthViewModel
 import com.example.ui.botapi.BotFatherViewModel
 import org.koin.androidx.compose.koinViewModel
@@ -91,6 +92,10 @@ object AppDestinations {
     const val CHANNEL_ADMIN_DIRECT_MESSAGES = "channel_admin/{chatId}/direct_messages"
     const val CHANNEL_APPEARANCE = "channel_appearance/{chatId}"
     const val CHANNEL_BOOST = "channel_boost/{chatId}"
+    const val GROUP_INVITE_LINKS = "group/{chatId}/invite_links"
+    const val GROUP_NEW_INVITE_LINK = "group/{chatId}/invite_links/new"
+    const val GROUP_ADD_MEMBERS = "group/{chatId}/add_members"
+    const val GROUP_JOIN_REQUESTS = "group/{chatId}/join_requests"
 
     // Route Helper Builders
     fun chat(chatId: String) = "chat/$chatId"
@@ -117,6 +122,10 @@ object AppDestinations {
     fun channelAdminDirectMessages(chatId: String) = "channel_admin/$chatId/direct_messages"
     fun channelAppearance(chatId: String) = "channel_appearance/$chatId"
     fun channelBoost(chatId: String) = "channel_boost/$chatId"
+    fun groupInviteLinks(chatId: String) = "group/$chatId/invite_links"
+    fun groupNewInviteLink(chatId: String) = "group/$chatId/invite_links/new"
+    fun groupAddMembers(chatId: String) = "group/$chatId/add_members"
+    fun groupJoinRequests(chatId: String) = "group/$chatId/join_requests"
     fun privacy(title: String) = "settings/privacy/$title"
     fun settingsProfile(highlightId: String? = null) = if (highlightId != null) "settings/profile?highlightId=$highlightId" else "settings/profile"
     fun settingsGeneral(highlightId: String? = null) = if (highlightId != null) "settings/general?highlightId=$highlightId" else "settings/general"
@@ -439,6 +448,7 @@ fun MainAppNavGraph(
         composable(AppDestinations.SETTINGS_PRIVACY) { backStackEntry ->
             val title = backStackEntry.arguments?.getString("title") ?: ""
             PrivacySettingScreen(
+                viewModel = viewModel,
                 navController = navController,
                 title = title
             )
@@ -727,6 +737,54 @@ fun MainAppNavGraph(
             if (chatId != null) {
                 CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
                     ChannelBoostScreen(
+                        viewModel = viewModel,
+                        chatId = chatId,
+                        navController = navController
+                    )
+                }
+            }
+        }
+        composable(AppDestinations.GROUP_INVITE_LINKS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    GroupInviteLinksScreen(
+                        viewModel = viewModel,
+                        chatId = chatId,
+                        navController = navController
+                    )
+                }
+            }
+        }
+        composable(AppDestinations.GROUP_NEW_INVITE_LINK) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    GroupNewInviteLinkScreen(
+                        viewModel = viewModel,
+                        chatId = chatId,
+                        navController = navController
+                    )
+                }
+            }
+        }
+        composable(AppDestinations.GROUP_ADD_MEMBERS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    GroupAddMembersScreen(
+                        viewModel = viewModel,
+                        chatId = chatId,
+                        navController = navController
+                    )
+                }
+            }
+        }
+        composable(AppDestinations.GROUP_JOIN_REQUESTS) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    GroupJoinRequestsScreen(
                         viewModel = viewModel,
                         chatId = chatId,
                         navController = navController

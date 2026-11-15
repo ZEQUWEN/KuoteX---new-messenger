@@ -21,7 +21,11 @@ import com.example.ui.Message
 import com.example.ui.UserAccount
 import com.example.ui.rating.UserRatingDao
 import com.example.ui.rating.UserRatingEntity
+import com.example.ui.group.GroupInviteLinkEntity
+import com.example.ui.group.GroupJoinRequestEntity
+import com.example.ui.group.UserPrivacyRuleEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -172,6 +176,9 @@ interface MessageDao {
 
 @Dao
 interface GroupMemberDao {
+    @Query("SELECT * FROM group_members")
+    fun getAllGroupMembers(): Flow<List<GroupMember>>
+
     @Query("SELECT * FROM group_members WHERE chatId = :chatId")
     fun getGroupMembers(chatId: String): Flow<List<GroupMember>>
 
@@ -192,6 +199,66 @@ interface GroupMemberDao {
 
     @Query("SELECT COUNT(*) > 0 FROM group_members WHERE chatId = :chatId AND userId = :userId AND role = 'creator'")
     suspend fun isUserCreatorOfChat(chatId: String, userId: String): Boolean
+}
+
+@Dao
+interface GroupInviteLinkDao {
+    @Query("SELECT * FROM group_invite_links WHERE chatId = :chatId ORDER BY isPrimary DESC, createdAt DESC")
+    fun getInviteLinksForChat(chatId: String): Flow<List<GroupInviteLinkEntity>>
+
+    @Query("SELECT * FROM group_invite_links WHERE chatId = :chatId ORDER BY isPrimary DESC, createdAt DESC")
+    suspend fun getInviteLinksForChatSync(chatId: String): List<GroupInviteLinkEntity>
+
+    @Query("SELECT * FROM group_invite_links")
+    fun getAllInviteLinks(): Flow<List<GroupInviteLinkEntity>>
+
+    @Query("SELECT * FROM group_invite_links WHERE url = :url LIMIT 1")
+    suspend fun getInviteLinkByUrl(url: String): GroupInviteLinkEntity?
+
+    @Query("SELECT * FROM group_invite_links WHERE id = :id LIMIT 1")
+    suspend fun getInviteLinkById(id: String): GroupInviteLinkEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertInviteLink(link: GroupInviteLinkEntity)
+
+    @Query("UPDATE group_invite_links SET isRevoked = 1 WHERE id = :linkId")
+    suspend fun revokeInviteLink(linkId: String)
+
+    @Query("UPDATE group_invite_links SET isRevoked = 1, isPrimary = 0 WHERE chatId = :chatId AND isPrimary = 1")
+    suspend fun revokePrimaryLinks(chatId: String)
+
+    @Query("UPDATE group_invite_links SET usageCount = usageCount + 1 WHERE id = :linkId")
+    suspend fun incrementUsageCount(linkId: String)
+}
+
+@Dao
+interface GroupJoinRequestDao {
+    @Query("SELECT * FROM group_join_requests WHERE chatId = :chatId AND status = 'PENDING' ORDER BY requestedAt DESC")
+    fun getPendingJoinRequests(chatId: String): Flow<List<GroupJoinRequestEntity>>
+
+    @Query("SELECT * FROM group_join_requests WHERE status = 'PENDING' ORDER BY requestedAt DESC")
+    fun getAllPendingJoinRequests(): Flow<List<GroupJoinRequestEntity>>
+
+    @Query("SELECT * FROM group_join_requests WHERE chatId = :chatId AND userId = :userId AND status = 'PENDING' LIMIT 1")
+    suspend fun getPendingRequestForUser(chatId: String, userId: String): GroupJoinRequestEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertJoinRequest(request: GroupJoinRequestEntity)
+
+    @Query("UPDATE group_join_requests SET status = :status WHERE id = :requestId")
+    suspend fun updateJoinRequestStatus(requestId: String, status: String)
+}
+
+@Dao
+interface UserPrivacyRuleDao {
+    @Query("SELECT * FROM user_privacy_rules")
+    fun getAllPrivacyRules(): Flow<List<UserPrivacyRuleEntity>>
+
+    @Query("SELECT * FROM user_privacy_rules WHERE userId = :userId LIMIT 1")
+    suspend fun getPrivacyRuleSync(userId: String): UserPrivacyRuleEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPrivacyRule(rule: UserPrivacyRuleEntity)
 }
 
 @Dao
@@ -310,7 +377,25 @@ interface QueuedMessageDao {
 }
 
 @androidx.room.TypeConverters(BotConverters::class)
-@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class, UserRatingEntity::class], version = 27, exportSchema = false)
+@Database(
+    entities = [
+        CustomBotEntity::class,
+        UserAccount::class,
+        Chat::class,
+        Message::class,
+        GroupMember::class,
+        Draft::class,
+        Contact::class,
+        PaymentTransaction::class,
+        QueuedMessage::class,
+        UserRatingEntity::class,
+        GroupInviteLinkEntity::class,
+        GroupJoinRequestEntity::class,
+        UserPrivacyRuleEntity::class
+    ],
+    version = 28,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun botDao(): BotDao
     abstract fun userDao(): UserDao
@@ -322,6 +407,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun paymentTransactionDao(): PaymentTransactionDao
     abstract fun queuedMessageDao(): QueuedMessageDao
     abstract fun userRatingDao(): UserRatingDao
+    abstract fun groupInviteLinkDao(): GroupInviteLinkDao
+    abstract fun groupJoinRequestDao(): GroupJoinRequestDao
+    abstract fun userPrivacyRuleDao(): UserPrivacyRuleDao
 }
 
 class MessengerRepository(
@@ -335,7 +423,10 @@ class MessengerRepository(
     private val paymentTransactionDao: PaymentTransactionDao,
     private val queuedMessageDao: QueuedMessageDao,
     private val sharedPrefs: android.content.SharedPreferences,
-    val webSocketManager: com.example.data.WebSocketManager
+    val webSocketManager: com.example.data.WebSocketManager,
+    private val groupInviteLinkDao: GroupInviteLinkDao? = null,
+    private val groupJoinRequestDao: GroupJoinRequestDao? = null,
+    private val userPrivacyRuleDao: UserPrivacyRuleDao? = null
 ) {
 
     fun getAllQueuedMessages(): Flow<List<QueuedMessage>> = queuedMessageDao.getAllQueuedMessages()
@@ -470,8 +561,6 @@ class MessengerRepository(
     fun getPagedMessages(chatId: String, limit: Int) = messageDao.getRecentMessagesForChat(chatId, limit).map { list -> list.map { it.copy(text = CryptoManager.decrypt(it.text), audioPath = it.audioPath?.let { p -> CryptoManager.decrypt(p) }, mediaPath = it.mediaPath?.let { p -> CryptoManager.decrypt(p) }, documentData = it.documentData?.let { p -> CryptoManager.decrypt(p) }) } }
     fun getMessageCountForChat(chatId: String): Flow<Int> = messageDao.getMessageCountForChat(chatId)
     suspend fun getMessagesPage(chatId: String, limit: Int, offset: Int): List<Message> = messageDao.getMessagesPage(chatId, limit, offset).map { it.copy(text = CryptoManager.decrypt(it.text), audioPath = it.audioPath?.let { p -> CryptoManager.decrypt(p) }, mediaPath = it.mediaPath?.let { p -> CryptoManager.decrypt(p) }, documentData = it.documentData?.let { p -> CryptoManager.decrypt(p) }) }
-    fun getGroupMembers(chatId: String) = groupMemberDao.getGroupMembers(chatId)
-    suspend fun getGroupMemberSync(chatId: String, userId: String) = groupMemberDao.getGroupMemberSync(chatId, userId)
     
     suspend fun getDraft(chatId: String) = draftDao.getDraft(chatId)
 
@@ -525,11 +614,61 @@ class MessengerRepository(
         }
     }
 
+    fun getAllGroupMembers(): Flow<List<GroupMember>> = groupMemberDao.getAllGroupMembers()
+    fun getGroupMembers(chatId: String) = groupMemberDao.getGroupMembers(chatId)
+    suspend fun getGroupMemberSync(chatId: String, userId: String) = groupMemberDao.getGroupMemberSync(chatId, userId)
     suspend fun insertGroupMember(member: GroupMember) = groupMemberDao.insertGroupMember(member)
     suspend fun updateAdminStatus(chatId: String, userId: String, isAdmin: Boolean) = groupMemberDao.updateAdminStatus(chatId, userId, isAdmin)
     suspend fun removeMember(chatId: String, userId: String) = groupMemberDao.removeMember(chatId, userId)
     fun getCreatorChatIds(userId: String): Flow<List<String>> = groupMemberDao.getCreatorChatIds(userId)
     suspend fun isUserCreatorOfChat(chatId: String, userId: String): Boolean = groupMemberDao.isUserCreatorOfChat(chatId, userId)
+
+    // Group Invite Links
+    fun getInviteLinksForChat(chatId: String): Flow<List<GroupInviteLinkEntity>> =
+        groupInviteLinkDao?.getInviteLinksForChat(chatId) ?: flowOf(emptyList())
+    suspend fun getInviteLinksForChatSync(chatId: String): List<GroupInviteLinkEntity> =
+        groupInviteLinkDao?.getInviteLinksForChatSync(chatId) ?: emptyList()
+    fun getAllInviteLinks(): Flow<List<GroupInviteLinkEntity>> =
+        groupInviteLinkDao?.getAllInviteLinks() ?: flowOf(emptyList())
+    suspend fun getInviteLinkByUrl(url: String): GroupInviteLinkEntity? =
+        groupInviteLinkDao?.getInviteLinkByUrl(url)
+    suspend fun getInviteLinkById(id: String): GroupInviteLinkEntity? =
+        groupInviteLinkDao?.getInviteLinkById(id)
+    suspend fun insertInviteLink(link: GroupInviteLinkEntity) {
+        groupInviteLinkDao?.insertInviteLink(link)
+    }
+    suspend fun revokeInviteLink(linkId: String) {
+        groupInviteLinkDao?.revokeInviteLink(linkId)
+    }
+    suspend fun revokePrimaryLinks(chatId: String) {
+        groupInviteLinkDao?.revokePrimaryLinks(chatId)
+    }
+    suspend fun incrementInviteUsageCount(linkId: String) {
+        groupInviteLinkDao?.incrementUsageCount(linkId)
+    }
+
+    // Group Join Requests
+    fun getPendingJoinRequests(chatId: String): Flow<List<GroupJoinRequestEntity>> =
+        groupJoinRequestDao?.getPendingJoinRequests(chatId) ?: flowOf(emptyList())
+    fun getAllPendingJoinRequests(): Flow<List<GroupJoinRequestEntity>> =
+        groupJoinRequestDao?.getAllPendingJoinRequests() ?: flowOf(emptyList())
+    suspend fun getPendingRequestForUser(chatId: String, userId: String): GroupJoinRequestEntity? =
+        groupJoinRequestDao?.getPendingRequestForUser(chatId, userId)
+    suspend fun insertJoinRequest(request: GroupJoinRequestEntity) {
+        groupJoinRequestDao?.insertJoinRequest(request)
+    }
+    suspend fun updateJoinRequestStatus(requestId: String, status: String) {
+        groupJoinRequestDao?.updateJoinRequestStatus(requestId, status)
+    }
+
+    // User Privacy Rules
+    fun getAllPrivacyRules(): Flow<List<UserPrivacyRuleEntity>> =
+        userPrivacyRuleDao?.getAllPrivacyRules() ?: flowOf(emptyList())
+    suspend fun getPrivacyRuleSync(userId: String): UserPrivacyRuleEntity? =
+        userPrivacyRuleDao?.getPrivacyRuleSync(userId)
+    suspend fun upsertPrivacyRule(rule: UserPrivacyRuleEntity) {
+        userPrivacyRuleDao?.upsertPrivacyRule(rule)
+    }
 
     suspend fun deleteMessage(messageId: String) = messageDao.deleteMessage(messageId)
     suspend fun deleteSystemSyncMessages() = messageDao.deleteSystemSyncMessages()

@@ -549,6 +549,13 @@ object ChannelCustomizationManager {
         )
     }
 
+    fun updatePrimaryInviteLink(chatId: String, inviteLink: String) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            map + (chatId to current.copy(inviteLink = inviteLink))
+        }
+    }
+
     fun updateDiscussionChat(chatId: String, discussionTitle: String) {
         customizations.update { map ->
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)

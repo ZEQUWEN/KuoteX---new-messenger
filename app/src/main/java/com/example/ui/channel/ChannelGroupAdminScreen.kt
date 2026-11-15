@@ -134,8 +134,11 @@ fun ChannelGroupAdminScreen(
     val adminsCount = members.count {
         it.isAdmin || it.role == "creator" || it.role == "admin"
     }.coerceAtLeast(1)
-    val subscribersCount = maxOf(customization.subscriberCount, members.size)
+    val isGroup = chat?.isGroup == true && chat.isChannel != true
+    val subscribersCount = if (isGroup) members.size.coerceAtLeast(1) else maxOf(customization.subscriberCount, members.size)
     val blacklistCount = customization.blacklistedUsers.size
+    val inviteLinks by viewModel.observeGroupInviteLinks(chatId).collectAsStateWithLifecycle(initialValue = emptyList())
+    val pendingJoinRequests by viewModel.observePendingJoinRequests(chatId).collectAsStateWithLifecycle(initialValue = emptyList())
 
     var channelTitle by remember(chatId, chat?.title) { mutableStateOf(chat?.title ?: "Канал") }
     var channelDesc by remember(chatId) { mutableStateOf(customization.description) }
@@ -615,14 +618,14 @@ fun ChannelGroupAdminScreen(
                     Column(modifier = Modifier.padding(vertical = 4.dp)) {
                         AdminMenuRow(
                             icon = Icons.Filled.Campaign,
-                            title = "Тип канала",
-                            value = if (customization.isPublic) "Публичный" else "Частный",
+                            title = if (isGroup) "Тип группы" else "Тип канала",
+                            value = if (customization.isPublic) (if (isGroup) "Публичная" else "Публичный") else (if (isGroup) "Частная" else "Частный"),
                             testTag = "admin_row_channel_type",
                             onClick = {
                                 if (canChangeInfo) {
                                     navController.navigateSafe("channel_admin/$chatId/type")
                                 } else {
-                                    Toast.makeText(context, "Нет прав на изменение типа канала", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Нет прав на изменение настроек", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         )
@@ -752,12 +755,32 @@ fun ChannelGroupAdminScreen(
 
                         AdminMenuRow(
                             icon = Icons.Filled.People,
-                            title = "Подписчики",
+                            title = if (isGroup) "Участники" else "Подписчики",
                             value = "$subscribersCount",
                             testTag = "admin_row_subscribers",
                             onClick = { navController.navigateSafe("channel_admin/$chatId/subscribers") }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
+
+                        AdminMenuRow(
+                            icon = Icons.Filled.Groups,
+                            title = "Пригласительные ссылки",
+                            value = if (inviteLinks.isNotEmpty()) "${inviteLinks.size}" else "1",
+                            testTag = "admin_row_invite_links",
+                            onClick = { navController.navigateSafe(com.example.ui.navigation.AppDestinations.groupInviteLinks(chatId)) }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
+
+                        if (isGroup && pendingJoinRequests.isNotEmpty()) {
+                            AdminMenuRow(
+                                icon = Icons.Filled.People,
+                                title = "Заявки на вступление",
+                                value = "${pendingJoinRequests.size}",
+                                testTag = "admin_row_join_requests",
+                                onClick = { navController.navigateSafe(com.example.ui.navigation.AppDestinations.groupJoinRequests(chatId)) }
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
+                        }
 
                         AdminMenuRow(
                             icon = Icons.Filled.Block,
