@@ -622,7 +622,8 @@ fun PinnedGiftDetailBottomSheet(
     gift: PinnedGift?,
     onDismiss: () -> Unit,
     onUpgradeClick: (PinnedGift) -> Unit,
-    onUnpinClick: ((PinnedGift) -> Unit)? = null
+    onUnpinClick: ((PinnedGift) -> Unit)? = null,
+    onExchangeForStarsClick: ((PinnedGift) -> Unit)? = null
 ) {
     if (gift == null) return
 
@@ -835,6 +836,40 @@ fun PinnedGiftDetailBottomSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Открепить из витрины профиля",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            if (onExchangeForStarsClick != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            try {
+                                sheetState.hide()
+                            } catch (_: Exception) {}
+                            onExchangeForStarsClick(gift)
+                            onDismiss()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFD54F))
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Star,
+                        contentDescription = "Обменять на звёзды",
+                        modifier = Modifier.size(18.dp),
+                        tint = Color(0xFFFFD54F)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Обменять на звёзды",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp
                     )

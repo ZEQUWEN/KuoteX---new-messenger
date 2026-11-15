@@ -248,7 +248,8 @@ class AppViewModel(
     val repository: MessengerRepository,
     val userPrefs: com.example.data.UserPreferencesRepository,
     val themeEngine: com.example.di.ThemeEngine = com.example.di.Injector.get().themeEngine,
-    val sandboxEngine: com.example.di.MessengerSandbox = com.example.di.Injector.get().messengerSandbox
+    val sandboxEngine: com.example.di.MessengerSandbox = com.example.di.Injector.get().messengerSandbox,
+    val userRatingDao: com.example.ui.rating.UserRatingDao? = null
 ) : ViewModel() {
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
@@ -675,6 +676,65 @@ class AppViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
+
+    val userRatingsMap: StateFlow<Map<String, com.example.ui.rating.UserRatingEntity>> =
+        com.example.ui.rating.UserRatingManager.ratingsMap
+
+    init {
+        userRatingDao?.let { dao ->
+            com.example.ui.rating.UserRatingManager.attachDao(dao, viewModelScope)
+        }
+        viewModelScope.launch {
+            activeAccount.collect { acc ->
+                com.example.ui.rating.UserRatingManager.setActiveOwnUserId(acc?.id)
+            }
+        }
+    }
+
+    fun observeUserRating(
+        userId: String,
+        isOwnProfile: Boolean = false
+    ): Flow<com.example.ui.rating.UserRatingState> {
+        return com.example.ui.rating.UserRatingManager.observeRatingState(
+            userId = userId,
+            isOwnProfile = isOwnProfile
+        )
+    }
+
+    fun getUserRatingState(
+        userId: String,
+        isOwnProfile: Boolean = false
+    ): com.example.ui.rating.UserRatingState {
+        return com.example.ui.rating.UserRatingManager.getRatingState(
+            userId = userId,
+            isOwnProfile = isOwnProfile
+        )
+    }
+
+    fun recordDirectGiftSentRating(starsSpent: Int, senderId: String? = activeAccount.value?.id) {
+        val targetId = senderId?.takeIf { it.isNotBlank() } ?: "me"
+        com.example.ui.rating.UserRatingManager.recordDirectGiftPurchase(targetId, starsSpent)
+    }
+
+    fun recordMarketOrPaidActionRating(starsSpent: Int, userId: String? = activeAccount.value?.id) {
+        val targetId = userId?.takeIf { it.isNotBlank() } ?: "me"
+        com.example.ui.rating.UserRatingManager.recordMarketOrPaidAction(targetId, starsSpent)
+    }
+
+    fun recordStarsRefundRating(refundedStars: Int, userId: String? = activeAccount.value?.id) {
+        val targetId = userId?.takeIf { it.isNotBlank() } ?: "me"
+        com.example.ui.rating.UserRatingManager.recordStarsRefund(targetId, refundedStars)
+    }
+
+    fun recordGiftExchangeRating(giftStarsValue: Int, userId: String? = activeAccount.value?.id) {
+        val targetId = userId?.takeIf { it.isNotBlank() } ?: "me"
+        com.example.ui.rating.UserRatingManager.recordGiftExchangeForStars(targetId, giftStarsValue)
+    }
+
+    fun recordChannelBoostRating(userId: String? = activeAccount.value?.id) {
+        val targetId = userId?.takeIf { it.isNotBlank() } ?: "me"
+        com.example.ui.rating.UserRatingManager.recordBoostActivity(targetId)
+    }
 
     val chats: StateFlow<List<Chat>> = repository.allChats
         .stateIn(
@@ -1848,6 +1908,9 @@ class AppViewModel(
             )
             repository.insertMessageAndUpdateChat(msg, sanitizedText, "You")
             repository.updateDraft(chatId, null)
+            com.example.ui.rating.UserRatingManager.recordMessageActivity(
+                senderId.ifBlank { activeAccount.value?.id ?: "me" }
+            )
             
             if (!isOnline) {
                 // Persistent Room caching for offline outgoing messages

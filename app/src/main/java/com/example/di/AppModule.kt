@@ -76,6 +76,7 @@ val databaseModule = module {
     single { get<AppDatabase>().contactDao() }
     single { get<AppDatabase>().paymentTransactionDao() }
     single { get<AppDatabase>().queuedMessageDao() }
+    single { get<AppDatabase>().userRatingDao() }
 
     // Central Data Repository
     single<MessengerRepository> {
@@ -161,7 +162,8 @@ val viewModelModule = module {
             repository = get(),
             userPrefs = get(),
             themeEngine = get(),
-            sandboxEngine = get()
+            sandboxEngine = get(),
+            userRatingDao = get()
         )
     }
     viewModel {

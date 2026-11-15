@@ -444,6 +444,7 @@ fun ChannelProfileScreen(
             channelTitle = chat?.title ?: "Канал",
             onDismissRequest = { showSendGiftDialog = false },
             onGiftSent = { giftName, stars ->
+                viewModel.recordDirectGiftSentRating(stars)
                 Toast.makeText(
                     context,
                     "Вы успешно отправили подарок «$giftName» за $stars ⭐!",

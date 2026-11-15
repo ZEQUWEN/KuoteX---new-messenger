@@ -70,7 +70,10 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.navigation.AppDestinations
+import com.example.ui.rating.UserRatingBottomSheet
+import com.example.ui.rating.UserRatingLevelStatusRow
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -215,6 +218,13 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
     var showAvatarViewer by remember { mutableStateOf(false) }
     var showQrDialog by remember { mutableStateOf(false) }
     var showAddPublicationSheet by remember { mutableStateOf(false) }
+    var showRatingSheet by remember { mutableStateOf(false) }
+
+    val ownRatingState by remember(activeAccount.id) {
+        viewModel.observeUserRating(userId = activeAccount.id, isOwnProfile = true)
+    }.collectAsStateWithLifecycle(
+        initialValue = viewModel.getUserRatingState(activeAccount.id, isOwnProfile = true)
+    )
 
     val pinnedGiftsMap by com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.pinnedGiftsMap.collectAsState()
     val catalogGifts by com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.catalogGifts.collectAsState()
@@ -430,6 +440,7 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                             val isLive = viewModel.isUserStreaming(activeAccount.id)
                             val activeStream = viewModel.getActiveStream(activeAccount.id)
 
+                            val statusLabel = if (activeAccount.customStatus.isNotBlank()) activeAccount.customStatus else "в сети"
                             if (isLive) {
                                 Spacer(Modifier.height(3.dp))
                                 Row(
@@ -452,13 +463,24 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
+                                Spacer(Modifier.height(4.dp))
+                                UserRatingLevelStatusRow(
+                                    level = ownRatingState.level,
+                                    statusText = statusLabel,
+                                    isSolidShield = true,
+                                    statusColor = Color.White.copy(alpha = 0.72f),
+                                    onClick = { showRatingSheet = true },
+                                    testTag = "my_profile_rating_badge"
+                                )
                             } else {
                                 Spacer(Modifier.height(2.dp))
-                                Text(
-                                    text = if (activeAccount.customStatus.isNotBlank()) activeAccount.customStatus else "в сети",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.72f),
-                                    fontSize = 14.sp
+                                UserRatingLevelStatusRow(
+                                    level = ownRatingState.level,
+                                    statusText = statusLabel,
+                                    isSolidShield = true,
+                                    statusColor = Color.White.copy(alpha = 0.78f),
+                                    onClick = { showRatingSheet = true },
+                                    testTag = "my_profile_rating_badge"
                                 )
                             }
 
@@ -885,7 +907,25 @@ fun MyProfileScreen(viewModel: AppViewModel, navController: NavController) {
                 onUnpinClick = { gift ->
                     com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.unpinUserGift(activeAccount.id, gift.id)
                     android.widget.Toast.makeText(context, "Подарок откреплен от профиля", android.widget.Toast.LENGTH_SHORT).show()
+                },
+                onExchangeForStarsClick = { gift ->
+                    val res = com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.exchangeUserGiftForStars(
+                        userId = activeAccount.id,
+                        userGiftId = gift.id,
+                        catalogGiftId = gift.catalogGiftId
+                    )
+                    val credited = res.getOrNull() ?: 0L
+                    android.widget.Toast.makeText(context, "Подарок обменян на +$credited ⭐", android.widget.Toast.LENGTH_SHORT).show()
                 }
+            )
+        }
+
+        if (showRatingSheet) {
+            UserRatingBottomSheet(
+                userName = activeAccount.displayName,
+                isOwnProfile = true,
+                ratingState = ownRatingState,
+                onDismiss = { showRatingSheet = false }
             )
         }
 

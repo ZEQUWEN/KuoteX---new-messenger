@@ -601,6 +601,11 @@ object KuoteXEcosystemFirestoreManager {
             list.map { if (it.id == collectibleGiftId) updatedGift else it }
         }
 
+        com.example.ui.rating.UserRatingManager.recordMarketOrPaidAction(
+            userId = userId,
+            starsSpent = gift.priceStars.toInt()
+        )
+
         Result.success(updatedGift)
     }
 
@@ -769,11 +774,12 @@ object KuoteXEcosystemFirestoreManager {
                 userGiftDoc
             }.await()
 
+            val purchasedPrice = _catalogGifts.value.find { g -> g.catalogGiftId == catalogGiftId }?.price ?: 100L
             // Update local state
             _currentUserState.update { current ->
                 current?.let {
                     if (it.userId == senderUserId) {
-                        it.copy(balance = it.balance - (_catalogGifts.value.find { g -> g.catalogGiftId == catalogGiftId }?.price ?: 100L))
+                        it.copy(balance = (it.balance - purchasedPrice).coerceAtLeast(0L))
                     } else it
                 }
             }
@@ -785,6 +791,11 @@ object KuoteXEcosystemFirestoreManager {
                 }
                 currentMap + (targetUserId to existing)
             }
+
+            com.example.ui.rating.UserRatingManager.recordDirectGiftPurchase(
+                senderUserId = senderUserId,
+                starsSpent = purchasedPrice.toInt()
+            )
 
             Result.success(userGiftResult)
         } catch (e: Exception) {
@@ -852,6 +863,11 @@ object KuoteXEcosystemFirestoreManager {
                 currentMap + (targetUserId to existing)
             }
 
+            com.example.ui.rating.UserRatingManager.recordDirectGiftPurchase(
+                senderUserId = senderUserId,
+                starsSpent = giftPrice.toInt()
+            )
+
             Log.i(TAG, "Gift purchase completed locally: ${localUserGift.userGiftId} (${catalogData.title})")
             Result.success(localUserGift)
         }
@@ -866,6 +882,48 @@ object KuoteXEcosystemFirestoreManager {
             currentMap + (userId to list)
         }
         Log.i(TAG, "Unpinned user gift $userGiftId for user $userId")
+    }
+
+    /**
+     * Exchange a received gift for Stars, deducting 85% of the gift's Stars value from rating.
+     */
+    fun exchangeUserGiftForStars(
+        userId: String,
+        userGiftId: String,
+        catalogGiftId: String
+    ): Result<Long> {
+        val catalogGift = _catalogGifts.value.find { it.catalogGiftId == catalogGiftId }
+        val giftPriceStars = catalogGift?.price ?: 50L
+        val starsCredited = (giftPriceStars * 0.85).toLong().coerceAtLeast(1L)
+
+        _pinnedGiftsMap.update { currentMap ->
+            val list = currentMap[userId]?.filter { it.userGiftId != userGiftId } ?: emptyList()
+            currentMap + (userId to list)
+        }
+        _currentUserState.update { curr ->
+            curr?.copy(balance = curr.balance + starsCredited)
+                ?: KuoteXUserDoc(userId = userId, username = userId, displayName = userId, balance = 1000L + starsCredited)
+        }
+        com.example.ui.rating.UserRatingManager.recordGiftExchangeForStars(
+            userId = userId,
+            giftPriceStars = giftPriceStars.toInt()
+        )
+        return Result.success(starsCredited)
+    }
+
+    /**
+     * Process Stars refund, deducting 10x refunded Stars from user rating.
+     */
+    fun refundStars(userId: String, refundedStars: Long): Result<Long> {
+        val safeRefund = refundedStars.coerceAtLeast(0L)
+        _currentUserState.update { curr ->
+            curr?.copy(balance = (curr.balance - safeRefund).coerceAtLeast(0L))
+        }
+        com.example.ui.rating.UserRatingManager.recordStarsRefund(
+            userId = userId,
+            refundedStars = safeRefund.toInt()
+        )
+        return Result.success(safeRefund)
     }
 
     /**
@@ -1069,6 +1127,8 @@ object KuoteXEcosystemFirestoreManager {
                 )
             }
 
+            com.example.ui.rating.UserRatingManager.recordBoostActivity(userId = userId)
+
             Result.success(updatedChannel)
         } catch (e: Exception) {
             if (e is UnauthorizedBoostException || e is InsufficientBoostVotesException) {
@@ -1100,6 +1160,7 @@ object KuoteXEcosystemFirestoreManager {
                 storiesPerDayLimit = (newLevel * 2).coerceAtLeast(0),
                 updatedAt = now
             )
+            com.example.ui.rating.UserRatingManager.recordBoostActivity(userId = userId)
             Result.success(channelDoc)
         }
     }
@@ -1174,6 +1235,11 @@ object KuoteXEcosystemFirestoreManager {
                 currentMap + (userId to list)
             }
 
+            com.example.ui.rating.UserRatingManager.recordMarketOrPaidAction(
+                userId = userId,
+                starsSpent = upgradeCostStars.toInt()
+            )
+
             Result.success(updatedUserGift)
         } catch (e: Exception) {
             Log.w(TAG, "Remote Firestore gift upgrade failed: ${e.message}. Attempting local ecosystem update.")
@@ -1208,6 +1274,10 @@ object KuoteXEcosystemFirestoreManager {
                     currentMap + (userId to currentGifts)
                 }
                 
+                com.example.ui.rating.UserRatingManager.recordMarketOrPaidAction(
+                    userId = userId,
+                    starsSpent = upgradeCostStars.toInt()
+                )
                 Log.i(TAG, "Gift upgraded locally successfully: ${upgradedLocalDoc.userGiftId} to level $newLevel")
                 Result.success(upgradedLocalDoc)
             } else {

@@ -137,6 +137,8 @@ import com.example.ui.gifts.PinnedCollectibleBadge
 import com.example.ui.gifts.PinnedGift
 import com.example.ui.gifts.PinnedGiftDetailBottomSheet
 import com.example.ui.gifts.PinnedGiftsHeader
+import com.example.ui.rating.UserRatingBottomSheet
+import com.example.ui.rating.UserRatingLevelStatusRow
 import kotlinx.coroutines.launch
 
 /**
@@ -290,6 +292,11 @@ fun ProfileScreen(
 
     val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
     val isMe = activeAccount?.id == chatId
+    val profileRatingState by remember(chatId, isMe) {
+        viewModel.observeUserRating(userId = chatId, isOwnProfile = isMe)
+    }.collectAsStateWithLifecycle(
+        initialValue = viewModel.getUserRatingState(userId = chatId, isOwnProfile = isMe)
+    )
 
     // Hero Avatar URLs with persistent avatar storage & Firebase uploads
     var userAvatarsList by remember(chatId) {
@@ -754,41 +761,15 @@ fun ProfileScreen(
 
                             Spacer(modifier = Modifier.height(3.dp))
 
-                            // Rating pill & Online Status
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Surface(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { showRatingSheet = true },
-                                    color = Color(0xFFC084FC).copy(alpha = 0.25f),
-                                    border = BorderStroke(1.dp, Color(0xFFC084FC).copy(alpha = 0.5f)),
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(text = "👑", fontSize = 11.sp)
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text(
-                                            text = "487 / 5K",
-                                            color = Color(0xFFE9D5FF),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
-
-                                Text(
-                                    text = if (presence?.isOnline == true) "в сети" else "был(а) недавно",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    fontSize = 13.sp
-                                )
-                            }
+                            // Rating shield badge & Online Status
+                            UserRatingLevelStatusRow(
+                                level = profileRatingState.level,
+                                statusText = if (presence?.isOnline == true) "в сети" else "был(а) недавно",
+                                isSolidShield = isMe,
+                                statusColor = Color.White.copy(alpha = 0.78f),
+                                onClick = { showRatingSheet = true },
+                                testTag = "profile_rating_badge"
+                            )
 
                             Spacer(modifier = Modifier.height(14.dp))
 
@@ -1173,12 +1154,12 @@ fun ProfileScreen(
         )
     }
 
-    // Telegram-style Rating BottomSheet (matching Screenshot 4)
+    // Telegram-style Rating BottomSheet
     if (showRatingSheet) {
-        RatingDetailsBottomSheet(
+        UserRatingBottomSheet(
             userName = chat.title,
-            currentPoints = 487,
-            maxPoints = 5000,
+            isOwnProfile = isMe,
+            ratingState = profileRatingState,
             onDismiss = { showRatingSheet = false }
         )
     }
@@ -1328,156 +1309,6 @@ private fun UserGiftProfileItem(
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                     )
                 }
-            }
-        }
-    }
-}
-
-/**
- * BottomSheet displaying user activity rating (matching Screenshot 4)
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun RatingDetailsBottomSheet(
-    userName: String,
-    currentPoints: Int,
-    maxPoints: Int,
-    onDismiss: () -> Unit
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Color(0xFF161424),
-        scrimColor = Color.Black.copy(alpha = 0.7f)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Rating pill
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFFC084FC)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "👑", fontSize = 16.sp)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "$currentPoints / 5K",
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 16.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Рейтинг",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-
-            Text(
-                text = "Рейтинг отражает активность $userName в KuoteX. На него влияют:",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.LightGray,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Criteria list (Подарки, Маркет и посты, Возвраты)
-            RatingFactorRow(
-                icon = "🎁",
-                title = "Подарки от KuoteX",
-                badgeText = "плюс",
-                badgeColor = Color(0xFFC084FC),
-                desc = "100% звёзд, потраченных на приобретение подарков от KuoteX."
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            RatingFactorRow(
-                icon = "👥",
-                title = "Маркет и посты",
-                badgeText = "плюс",
-                badgeColor = Color(0xFFC084FC),
-                desc = "20% звёзд, потраченных на покупку подарков у пользователей, платные сообщения и посты в каналах."
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            RatingFactorRow(
-                icon = "🔄",
-                title = "Возвраты и обмены",
-                badgeText = "минус",
-                badgeColor = Color(0xFF64748B),
-                desc = "Возвращённые звёзды, умноженные на 10, и 85% от стоимости подарков, обменянных на звёзды."
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Button(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC084FC))
-            ) {
-                Text("👌 OK", fontWeight = FontWeight.Bold, color = Color.White)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-}
-
-@Composable
-private fun RatingFactorRow(
-    icon: String,
-    title: String,
-    badgeText: String,
-    badgeColor: Color,
-    desc: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        Text(text = icon, fontSize = 24.sp, modifier = Modifier.padding(top = 2.dp))
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 15.sp)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(vertical = 2.dp)
-            ) {
-                Surface(
-                    color = badgeColor.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        color = badgeColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = desc, fontSize = 12.sp, color = Color.LightGray)
             }
         }
     }

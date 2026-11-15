@@ -120,6 +120,8 @@ fun GiftMarketplaceScreen(
     val catalogGifts by ecosystemManager.catalogGifts.collectAsState()
     val collectibleGifts by ecosystemManager.collectibleMarketplaceGifts.collectAsState()
     val currentUser by ecosystemManager.currentUserState.collectAsState()
+    val activeAccount = com.example.ui.LocalActiveAccount.current
+    val resolvedActiveUserId = activeAccount?.id?.takeIf { it.isNotBlank() } ?: currentUser?.userId ?: "me"
     val activeCurrency by ecosystemManager.selectedCurrency.collectAsState()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) } // 0: Все / Маркетплейс, 1: Обычные, 2: Коллекционные
@@ -378,7 +380,7 @@ fun GiftMarketplaceScreen(
             onConfirmPurchase = { message, isAnonymous, pinToHeader ->
                 selectedCatalogGiftForBuy = null
                 scope.launch {
-                    val activeUser = currentUser?.userId ?: "me"
+                    val activeUser = resolvedActiveUserId
                     val receiver = targetUserId ?: activeUser
                     val idempotencyKey = "buy_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(6)}"
                     val result = ecosystemManager.processGiftPurchaseAtomic(
@@ -411,7 +413,7 @@ fun GiftMarketplaceScreen(
                 val toBuy = collectible
                 selectedCollectibleForBuy = null
                 scope.launch {
-                    val activeUser = currentUser?.userId ?: "me"
+                    val activeUser = resolvedActiveUserId
                     val result = ecosystemManager.purchaseCollectibleGift(activeUser, toBuy.id)
                     if (result.isSuccess) {
                         // Pin to username option

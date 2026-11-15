@@ -2,6 +2,8 @@ package com.example.data
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import net.sqlcipher.database.SupportFactory
 
 class SecureDatabaseHelper private constructor(context: Context) {
@@ -35,11 +37,31 @@ class SecureDatabaseHelper private constructor(context: Context) {
                 openHelperFactory(sqlCipherFactory)
             }
         }
+        .addMigrations(MIGRATION_26_27)
         .fallbackToDestructiveMigration()
         .build()
     }
 
     companion object {
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `user_ratings` (
+                        `userId` TEXT NOT NULL,
+                        `totalPoints` INTEGER NOT NULL,
+                        `directGiftStarsPoints` INTEGER NOT NULL,
+                        `marketAndPostsPoints` INTEGER NOT NULL,
+                        `activityPoints` INTEGER NOT NULL,
+                        `refundPenaltyPoints` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`userId`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: SecureDatabaseHelper? = null
 

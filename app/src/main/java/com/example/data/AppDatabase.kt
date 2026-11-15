@@ -19,6 +19,8 @@ import com.example.ui.Contact
 import com.example.ui.GroupMember
 import com.example.ui.Message
 import com.example.ui.UserAccount
+import com.example.ui.rating.UserRatingDao
+import com.example.ui.rating.UserRatingEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -302,7 +304,7 @@ interface QueuedMessageDao {
 }
 
 @androidx.room.TypeConverters(BotConverters::class)
-@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class], version = 26, exportSchema = false)
+@Database(entities = [CustomBotEntity::class, UserAccount::class, Chat::class, Message::class, GroupMember::class, Draft::class, Contact::class, PaymentTransaction::class, QueuedMessage::class, UserRatingEntity::class], version = 27, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun botDao(): BotDao
     abstract fun userDao(): UserDao
@@ -313,6 +315,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun contactDao(): ContactDao
     abstract fun paymentTransactionDao(): PaymentTransactionDao
     abstract fun queuedMessageDao(): QueuedMessageDao
+    abstract fun userRatingDao(): UserRatingDao
 }
 
 class MessengerRepository(

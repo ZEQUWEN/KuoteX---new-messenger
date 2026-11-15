@@ -1123,6 +1123,7 @@ fun BroadcastScreen(
                                             myCommentsSentCount++
                                             if (!isHost && price > 0) {
                                                 myStarsDonatedAmount += price
+                                                viewModel.recordMarketOrPaidActionRating(price)
                                             }
                                             val hostId = if (isHost) myUserId else (targetStreamId ?: "2")
                                             viewModel.addStreamComment(hostId, newComment)
@@ -1164,6 +1165,7 @@ fun BroadcastScreen(
                                     streamComments = (streamComments + newComment).takeLast(40)
                                     myCommentsSentCount++
                                     myStarsDonatedAmount += 50
+                                    viewModel.recordMarketOrPaidActionRating(50)
                                     val hostId = targetStreamId ?: "2"
                                     viewModel.addStreamComment(hostId, newComment)
                                     com.example.analytics.AnalyticsTracker.logStreamAction(
