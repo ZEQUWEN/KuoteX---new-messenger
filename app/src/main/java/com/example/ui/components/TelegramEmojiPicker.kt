@@ -85,6 +85,7 @@ object TelegramEmojiData {
         if (recentEmojis.size > 28) {
             recentEmojis.removeAt(recentEmojis.size - 1)
         }
+        com.example.ui.media.MediaExpressionManager.syncFromTelegramEmojiPicker(recentEmojis.toList())
     }
 
     val categories: List<EmojiCategory> by lazy {

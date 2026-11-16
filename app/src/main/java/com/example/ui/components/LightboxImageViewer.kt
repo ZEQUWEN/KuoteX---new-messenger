@@ -120,6 +120,11 @@ data class PlacedText(
  * Helper function to detect if a Message contains an image or video.
  */
 fun isImageMessage(message: Message): Boolean {
+    if (message.mediaType.equals("sticker", ignoreCase = true) ||
+        message.documentData?.contains("\"type\":\"sticker\"") == true
+    ) {
+        return false
+    }
     if (!message.mediaPath.isNullOrBlank()) {
         val path = message.mediaPath.lowercase()
         if (path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") ||

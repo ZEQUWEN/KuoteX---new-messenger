@@ -572,6 +572,12 @@ fun SettingsMenuScreen(viewModel: AppViewModel, navController: NavController) {
                         onClick = { navController.navigateSafe(com.example.ui.navigation.AppDestinations.SETTINGS_FOLDERS) }
                     )
                     SettingsListItem(
+                        icon = { Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFF9C68FC)), contentAlignment = Alignment.Center) { Icon(Icons.Filled.SentimentSatisfied, null, tint = Color.White, modifier = Modifier.size(20.dp)) } },
+                        title = "Стикеры и эмодзи",
+                        subtitle = "Наборы стикеров, GIF, быстрая реакция",
+                        onClick = { navController.navigateSafe(com.example.ui.navigation.AppDestinations.SETTINGS_STICKERS_EMOJI) }
+                    )
+                    SettingsListItem(
                         icon = { Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFF00BCD4)), contentAlignment = Alignment.Center) { Icon(Icons.Filled.Devices, null, tint = Color.White, modifier = Modifier.size(20.dp)) } },
                         title = "Устройства",
                         subtitle = "Управление активными сеансами",

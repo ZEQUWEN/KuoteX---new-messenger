@@ -27,6 +27,8 @@ object SettingsRegistry {
         SettingsItem("general_sounds", "Уведомления и звуки", listOf("звук", "уведомления", "сигнал", "звонок"), Icons.Filled.Notifications, Color(0xFFEF4444), "Уведомления > Уведомления и звуки", "settings/general"),
         SettingsItem("storage_network", "Использование сети", listOf("трафик", "сеть", "интернет", "данные"), Icons.Filled.DataUsage, Color(0xFF3B82F6), "Данные и память > Использование сети", "settings/storage"),
         SettingsItem("folders_manage", "Папки с чатами", listOf("папки", "папка", "сортировка", "фильтр", "folders"), Icons.Filled.Folder, Color(0xFF2196F3), "Настройки > Папки с чатами", "settings/folders"),
+        SettingsItem("stickers_emoji", "Стикеры и эмодзи", listOf("стикеры", "эмодзи", "gif", "гиф", "реакции", "наборы", "stickers"), Icons.Filled.SentimentSatisfied, Color(0xFF9C68FC), "Настройки > Стикеры и эмодзи", "settings/stickers_emoji"),
+        SettingsItem("quick_reaction", "Быстрая реакция", listOf("реакция", "лайк", "сердце", "двойное нажатие"), Icons.Filled.FavoriteBorder, Color(0xFFEC4899), "Стикеры и эмодзи > Быстрая реакция", "settings/stickers_emoji/quick_reaction"),
         SettingsItem("devices_active", "Активные сеансы", listOf("устройства", "сеансы", "завершить", "телефон"), Icons.Filled.Devices, Color(0xFF00BCD4), "Устройства > Активные сеансы", "settings/devices"),
         SettingsItem("battery_saver", "Режим энергосбережения", listOf("батарея", "энергия", "заряд", "экономия"), Icons.Filled.BatterySaver, Color(0xFFFF9800), "Энергосбережение > Режим", "settings/battery"),
         SettingsItem("language_app", "Язык приложения", listOf("язык", "language", "перевод", "русский"), Icons.Filled.Language, Color(0xFF9C27B0), "Язык > Язык приложения", "settings/language")

@@ -61,58 +61,37 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.ui.channel.*
 import com.example.ui.group.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.ui.media.*
 
 @Composable
 fun Modifier.telegramMessageGestures(
     onClick: () -> Unit,
-    onLongClick3s: () -> Unit
+    onLongClick3s: () -> Unit,
+    onDoubleClick: (() -> Unit)? = null
 ): Modifier {
     val currentOnClick by rememberUpdatedState(onClick)
     val currentOnLongClick3s by rememberUpdatedState(onLongClick3s)
-    val coroutineScope = rememberCoroutineScope()
-    
-    return this.pointerInput(Unit) {
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = true)
-            var isLongPressTriggered = false
-            
-            val timerJob = coroutineScope.launch {
-                delay(600L) // Standard Telegram message long press
-                isLongPressTriggered = true
-                currentOnLongClick3s()
-            }
-            
-            var moved = false
-            var consumedByChild = false
-            while (true) {
-                val event = awaitPointerEvent()
-                val currentChange = event.changes.firstOrNull { it.id == down.id }
-                if (currentChange == null || !currentChange.pressed) {
-                    if (currentChange != null && currentChange.isConsumed) {
-                        consumedByChild = true
-                    }
-                    break
-                }
-                if (currentChange.isConsumed) {
-                    consumedByChild = true
-                    timerJob.cancel()
-                    break
-                }
-                val distance = (currentChange.position - down.position).getDistance()
-                if (distance > 16f) {
-                    moved = true
-                    timerJob.cancel()
-                    break
-                }
-            }
-            timerJob.cancel()
-            
-            // If released without moving and unconsumed by a child element (like photo or audio), trigger message menu
-            if (!moved && !consumedByChild && !isLongPressTriggered && !down.isConsumed) {
-                currentOnClick()
-            }
-        }
+    val currentOnDoubleClick by rememberUpdatedState(onDoubleClick)
+
+    return this.pointerInput(onDoubleClick != null) {
+        detectTapGestures(
+            onTap = { currentOnClick() },
+            onDoubleTap = if (onDoubleClick != null) {
+                { currentOnDoubleClick?.invoke() }
+            } else null,
+            onLongPress = { currentOnLongClick3s() }
+        )
     }
 }
 
@@ -242,6 +221,17 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     var isVoiceRecording by remember { mutableStateOf(false) }
     var isVideoRecording by remember { mutableStateOf(false) }
     var recordingSeconds by remember { mutableIntStateOf(0) }
+    var showMediaPanel by remember { mutableStateOf(false) }
+    var mediaPanelInitialTab by remember { mutableStateOf(MediaPanelTab.EMOJI) }
+    var isSilentBroadcast by remember { mutableStateOf(false) }
+    val composerFocusRequester = remember { FocusRequester() }
+    val largeEmojiEnabled by MediaExpressionManager.largeEmojiEnabled.collectAsStateWithLifecycle()
+    val quickReactionEmoji by MediaExpressionManager.quickReaction.collectAsStateWithLifecycle()
+    val emojiHintMode by MediaExpressionManager.emojiHintMode.collectAsStateWithLifecycle()
+    val stickerPacksState by MediaExpressionManager.stickerPacks.collectAsStateWithLifecycle()
+    val suggestedStickers = remember(inputText, emojiHintMode, stickerPacksState) {
+        MediaExpressionManager.getSuggestedStickersForInput(inputText)
+    }
 
     LaunchedEffect(isVoiceRecording, isVideoRecording) {
         if (isVoiceRecording || isVideoRecording) {
@@ -409,12 +399,15 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     }
     
     LaunchedEffect(chatId) {
+        MediaExpressionManager.init(context)
         viewModel.markMessagesAsRead(chatId, activeAccount?.id ?: "")
     }
 
-    BackHandler(enabled = isSelectionMode || isSearchMode) {
+    BackHandler(enabled = isSelectionMode || isSearchMode || showMediaPanel) {
         if (isSelectionMode) {
             selectedMessageIds = emptySet()
+        } else if (showMediaPanel) {
+            showMediaPanel = false
         } else if (isSearchMode) {
             focusManager.clearFocus()
             keyboardController?.hide()
@@ -1100,579 +1093,727 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                         }
                     }
                 } else {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                    tonalElevation = 2.dp
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (!showMediaPanel) Modifier.navigationBarsPadding().imePadding()
+                            else Modifier
+                        )
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        // Telegram-style Forward Draft Banner
-                        if (currentForwardDraft != null) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { showForwardDraftOptions = true }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Forward,
-                                    contentDescription = "Переслать",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .width(3.dp)
-                                        .height(34.dp)
-                                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.5.dp))
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    val forwardHeading = if (currentForwardDraft.messages.size > 1) {
-                                        "Переслать ${currentForwardDraft.messages.size} сообщений"
-                                    } else {
-                                        "Переслать 1 сообщение"
-                                    }
-                                    Text(
-                                        text = forwardHeading,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                                    )
-                                    val firstMsg = currentForwardDraft.messages.firstOrNull()?.first
-                                    val previewContent = when {
-                                        firstMsg?.documentData != null -> "Файл / Документ"
-                                        firstMsg?.audioPath != null -> "Голосовое сообщение"
-                                        firstMsg?.text?.isNotBlank() == true -> firstMsg.text
-                                        else -> "Медиа"
-                                    }
-                                    val senderDisplayName = if (currentForwardDraft.hideSender) {
-                                        "Без имени автора"
-                                    } else {
-                                        val nickname = currentForwardDraft.originalSenderUsername
-                                        if (!nickname.isNullOrBlank()) {
-                                            "${currentForwardDraft.originalSenderName} (@$nickname)"
-                                        } else {
-                                            currentForwardDraft.originalSenderName
-                                        }
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (!currentForwardDraft.hideSender) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(16.dp)
-                                                    .clip(CircleShape)
-                                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                if (!currentForwardDraft.originalSenderAvatarUrl.isNullOrBlank()) {
-                                                    coil.compose.AsyncImage(
-                                                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                                                            .data(currentForwardDraft.originalSenderAvatarUrl)
-                                                            .crossfade(true)
-                                                            .build(),
-                                                        contentDescription = "Avatar",
-                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                                        modifier = Modifier.fillMaxSize().clip(CircleShape)
-                                                    )
-                                                }
-                                                val initialLetter = (currentForwardDraft.originalSenderName.take(1).ifBlank { "U" }).uppercase()
-                                                Text(
-                                                    text = initialLetter,
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp)),
-                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                        }
-                                        Text(
-                                            text = "$senderDisplayName: $previewContent",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            maxLines = 1,
-                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                IconButton(
-                                    onClick = { 
-                                        viewModel.clearForwardDraft(chatId) 
-                                    }, 
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Close, 
-                                        contentDescription = "Убрать пересылку", 
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
-                                thickness = 0.8.dp
-                            )
-                        }
-
-                        if (replyingToMessage != null) {
-                            val replyMsg = replyingToMessage!!
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { showReplyOptions = true }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.Reply,
-                                    contentDescription = "Reply",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .width(3.dp)
-                                        .height(30.dp)
-                                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.5.dp))
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "В ответ ${replyMsg.senderId}", 
-                                        style = MaterialTheme.typography.labelMedium, 
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = customQuoteText ?: replyMsg.text, 
-                                        style = MaterialTheme.typography.bodySmall, 
-                                        maxLines = 1, 
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { 
-                                        replyingToMessage = null
-                                        customQuoteText = null 
-                                    }, 
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = androidx.compose.material.icons.Icons.Filled.Close, 
-                                        contentDescription = "Убрать ответ", 
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
-                                thickness = 0.8.dp
-                            )
-                        }
-
-                        Row(
+                    // Inline Emoji-to-Sticker Hint Bar
+                    AnimatedVisibility(
+                        visible = suggestedStickers.isNotEmpty() && !isVoiceRecording && !isVideoRecording
+                    ) {
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 4.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF1A202C).copy(alpha = 0.94f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
                         ) {
-                    var attachmentMenuExpanded by remember { mutableStateOf(false) }
-                    var botMenuExpanded by remember { mutableStateOf(false) }
-
-                    if (chat.isChannel && linkedDiscussionGroup != null) {
-                        com.example.ui.channel.LinkedGroupAvatar(
-                            groupId = linkedDiscussionGroup.id,
-                            groupTitle = linkedDiscussionGroup.title,
-                            avatarUrl = linkedDiscussionGroupCustom?.avatarUrl,
-                            avatarSize = 32.dp,
-                            testTag = "channel_admin_linked_group_avatar",
-                            onClick = {
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                                navController.navigate("chat/${linkedDiscussionGroup.id}")
-                            }
-                        )
-                    } else if (chat.isGroup && availableSendAsIdentities.isNotEmpty() && activeSendAsIdentity != null) {
-                        Box {
-                            com.example.ui.channel.LinkedGroupAvatar(
-                                groupId = activeSendAsIdentity.id,
-                                groupTitle = activeSendAsIdentity.title,
-                                avatarUrl = activeSendAsIdentity.avatarUrl,
-                                avatarSize = 32.dp,
-                                testTag = "group_send_as_avatar_button",
-                                onClick = { showSendAsMenu = true }
-                            )
-                            SendAsIdentityMenu(
-                                expanded = showSendAsMenu,
-                                identities = availableSendAsIdentities,
-                                selectedIdentity = activeSendAsIdentity,
-                                onSelect = { identity ->
-                                    selectedSendAsIdentity = identity
-                                    showSendAsMenu = false
-                                },
-                                onDismiss = { showSendAsMenu = false }
-                            )
-                        }
-                    }
-
-                    if (chat.isBot || chat.title.contains("BotFather", ignoreCase = true)) {
-                        Box {
-                            IconButton(onClick = { botMenuExpanded = true }) {
-                                Icon(Icons.Filled.Terminal, contentDescription = "Команды бота", tint = MaterialTheme.colorScheme.primary)
-                            }
-                            DropdownMenu(
-                                expanded = botMenuExpanded,
-                                onDismissRequest = { botMenuExpanded = false }
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("/start - старт/перезапуск бота") },
-                                    onClick = {
-                                        botMenuExpanded = false
-                                        viewModel.sendMessage(chatId, activeAccount?.id ?: "", "/start", null, expiresIn)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("/newbot - создать нового бота") },
-                                    onClick = {
-                                        botMenuExpanded = false
-                                        viewModel.sendMessage(chatId, activeAccount?.id ?: "", "/newbot", null, expiresIn)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("/description - описание бота") },
-                                    onClick = {
-                                        botMenuExpanded = false
-                                        viewModel.sendMessage(chatId, activeAccount?.id ?: "", "/description", null, expiresIn)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("/mybots - список моих ботов") },
-                                    onClick = {
-                                        botMenuExpanded = false
-                                        viewModel.sendMessage(chatId, activeAccount?.id ?: "", "/mybots", null, expiresIn)
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    Box {
-                        IconButton(onClick = { attachmentMenuExpanded = true }) {
-                            Icon(Icons.Filled.AttachFile, contentDescription = "Прикрепить вложение")
-                        }
-                        DropdownMenu(
-                            expanded = attachmentMenuExpanded,
-                            onDismissRequest = { attachmentMenuExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Фото / Галерея") },
-                                onClick = { 
-                                    attachmentMenuExpanded = false
-                                    photoPickerLauncher.launch("image/*")
-                                },
-                                leadingIcon = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Камера") },
-                                onClick = { 
-                                    attachmentMenuExpanded = false
-                                    val photoDoc = org.json.JSONObject().apply {
-                                        put("uri", "https://picsum.photos/seed/${System.currentTimeMillis()}/800")
-                                        put("name", "Photo_${System.currentTimeMillis()}.jpg")
-                                        put("size", 1024L * 320)
-                                        put("mimeType", "image/jpeg")
-                                    }.toString()
-                                    viewModel.sendMessage(
-                                        chatId = chatId,
-                                        senderId = activeAccount?.id ?: "",
-                                        text = "📷 Сделанное фото",
-                                        audioPath = null,
-                                        expiresIn = expiresIn,
-                                        documentData = photoDoc
-                                    )
-                                },
-                                leadingIcon = { Icon(Icons.Filled.CameraAlt, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Файл") },
-                                onClick = { 
-                                    attachmentMenuExpanded = false
-                                    filePickerLauncher.launch(arrayOf("*/*"))
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Геолокация") },
-                                onClick = { 
-                                    attachmentMenuExpanded = false
-                                    viewModel.sendMessage(chatId, activeAccount?.id ?: "", "📍 Местоположение: 37.4221° N, 122.0841° W", null, expiresIn)
-                                },
-                                leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Опрос") },
-                                onClick = { 
-                                    attachmentMenuExpanded = false
-                                    showCreatePollDialog = true
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Poll, contentDescription = null, tint = Color(0xFF00E5FF)) }
-                            )
-                        }
-                    }
-
-                    if (chat.isBot) {
-                        var showBotMenu by remember { mutableStateOf(false) }
-                        IconButton(onClick = { showBotMenu = true }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Меню команд бота", tint = MaterialTheme.colorScheme.primary)
-                        }
-                        if (showBotMenu) {
-                            DropdownMenu(
-                                expanded = showBotMenu,
-                                onDismissRequest = { showBotMenu = false }
-                            ) {
-                                val botConfig = com.example.ui.botapi.BotRegistry.getBot(chat.id)
-                                val baseCommands = botConfig?.commands ?: listOf(com.example.ui.botapi.BotCommand("/start", "Start bot"), com.example.ui.botapi.BotCommand("/help", "Help"))
-                                val customCommands = (botConfig as? com.example.ui.botapi.CustomBot)?.customCommands ?: emptyList()
-                                val allCommands = baseCommands + customCommands
-
-                                allCommands.forEach { cmd ->
-                                    DropdownMenuItem(
-                                        text = { Text("${cmd.command} - ${cmd.description}") },
-                                        onClick = { 
-                                            viewModel.sendMessage(chatId, activeAccount?.id ?: "", cmd.command, null, expiresIn)
-                                            showBotMenu = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (isVoiceRecording || isVideoRecording) {
-                        com.example.ui.components.TelegramRecordingBar(
-                            mode = inputMode,
-                            recordingSeconds = recordingSeconds,
-                            onCancel = {
-                                isVoiceRecording = false
-                                isVideoRecording = false
-                                recordingSeconds = 0
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                    } else {
-                        var showEmojiPicker by remember { mutableStateOf(false) }
-                        IconButton(onClick = { showEmojiPicker = true }) {
-                            Text("😀", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { contentDescription = "Выбрать эмодзи и стикеры" })
-                        }
-                        if (showEmojiPicker) {
-                            TelegramEmojiPickerBottomSheet(
-                                onDismissRequest = { showEmojiPicker = false },
-                                onEmojiSelected = { emojiItem ->
-                                    inputText += emojiItem.emoji
-                                },
-                                title = "Эмодзи и стикеры"
-                            )
-                        }
-                        OutlinedTextField(
-                            value = inputText,
-                            onValueChange = { inputText = it },
-                            placeholder = {
-                                Text(
-                                    when {
-                                        chat.isGroup && activeSendAsIdentity?.type == "GROUP" -> "Анонимное сооб..."
-                                        chat.isGroup && activeSendAsIdentity?.type == "CHANNEL" -> "От имени ${activeSendAsIdentity.title}..."
-                                        else -> "Сообщение..."
-                                    }
-                                )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .semantics {
-                                    contentDescription = "Поле ввода сообщения"
-                                },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedBorderColor = Color.Transparent,
-                                focusedBorderColor = Color.Transparent
-                            )
-                        )
-                    }
-
-                    if (inputText.isNotBlank() || currentForwardDraft != null) {
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .combinedClickable(
-                                    onClick = {
-                                        if (currentForwardDraft != null) {
-                                            com.example.analytics.AnalyticsTracker.logChatAction(
-                                                action = "forward_messages",
-                                                chatId = chatId,
-                                                metadata = mapOf("count" to currentForwardDraft.messages.size)
-                                            )
-                                            viewModel.forwardMessages(
-                                                targetChatId = chatId,
-                                                senderId = activeAccount?.id ?: "",
-                                                messagesToForward = currentForwardDraft.messages,
-                                                hideSender = currentForwardDraft.hideSender
-                                            )
-                                            viewModel.clearForwardDraft(chatId)
-                                        }
-                                        if (inputText.isNotBlank()) {
-                                            com.example.analytics.AnalyticsTracker.logChatAction(
-                                                action = "send_message",
-                                                chatId = chatId,
-                                                metadata = mapOf(
-                                                    "length" to inputText.length,
-                                                    "has_reply" to (replyingToMessage != null),
-                                                    "is_custom_quote" to (customQuoteText != null)
-                                                )
-                                            )
+                                items(suggestedStickers, key = { it.second.id }) { (pack, sticker) ->
+                                    StickerTileCell(
+                                        sticker = sticker,
+                                        onClick = {
+                                            MediaExpressionManager.recordUsedSticker(pack.id, sticker)
                                             viewModel.sendMessage(
                                                 chatId = chatId,
                                                 senderId = activeAccount?.id ?: "",
-                                                text = inputText,
+                                                text = sticker.emoji,
                                                 audioPath = null,
                                                 expiresIn = expiresIn,
-                                                documentData = null,
+                                                documentData = MediaExpressionManager.buildStickerDocumentData(pack.id, sticker),
                                                 replyToMessageId = replyingToMessage?.id,
                                                 replyToMessageText = customQuoteText ?: replyingToMessage?.text,
+                                                mediaPath = sticker.id,
+                                                mediaType = "sticker",
                                                 sendAsIdentity = if (chat.isGroup) activeSendAsIdentity else null
                                             )
                                             inputText = ""
                                             replyingToMessage = null
                                             customQuoteText = null
+                                        },
+                                        modifier = Modifier.size(52.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Reply / Forward Draft Card (above pill input bar if active)
+                    if (currentForwardDraft != null || replyingToMessage != null) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                            tonalElevation = 2.dp
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                if (currentForwardDraft != null) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showForwardDraftOptions = true }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Forward,
+                                            contentDescription = "Переслать",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp)
+                                                .height(30.dp)
+                                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.5.dp))
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            val forwardHeading = if (currentForwardDraft.messages.size > 1) {
+                                                "Переслать ${currentForwardDraft.messages.size} сообщений"
+                                            } else {
+                                                "Переслать 1 сообщение"
+                                            }
+                                            Text(
+                                                text = forwardHeading,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            )
+                                            val firstMsg = currentForwardDraft.messages.firstOrNull()?.first
+                                            val previewContent = when {
+                                                firstMsg?.documentData != null -> "Медиа / Документ"
+                                                firstMsg?.audioPath != null -> "Голосовое сообщение"
+                                                firstMsg?.text?.isNotBlank() == true -> firstMsg.text
+                                                else -> "Медиа"
+                                            }
+                                            val senderDisplayName = if (currentForwardDraft.hideSender) {
+                                                "Без имени автора"
+                                            } else {
+                                                currentForwardDraft.originalSenderName
+                                            }
+                                            Text(
+                                                text = "$senderDisplayName: $previewContent",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
-                                    },
-                                    onClickLabel = "Отправить сообщение",
-                                    onLongClick = {
+                                        IconButton(
+                                            onClick = { viewModel.clearForwardDraft(chatId) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Убрать пересылку", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                                if (currentForwardDraft != null && replyingToMessage != null) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                                }
+                                if (replyingToMessage != null) {
+                                    val replyMsg = replyingToMessage!!
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showReplyOptions = true }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Reply,
+                                            contentDescription = "Reply",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp)
+                                                .height(28.dp)
+                                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.5.dp))
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "В ответ ${replyMsg.senderId}",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = customQuoteText ?: replyMsg.text,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                replyingToMessage = null
+                                                customQuoteText = null
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Убрать ответ", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Adaptive Compact Pill Composer (optimized for narrow devices such as Honor X7c 360dp and tablets)
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 6.dp)
+                    ) {
+                        val isCompactWidth = maxWidth < 385.dp
+                        val pillIconSize = if (isCompactWidth) 34.dp else 38.dp
+                        val avatarSize = if (isCompactWidth) 28.dp else 32.dp
+                        val actionCircleSize = if (isCompactWidth) 44.dp else 48.dp
+
+                        var attachmentMenuExpanded by remember { mutableStateOf(false) }
+                        var botMenuExpanded by remember { mutableStateOf(false) }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(if (isCompactWidth) 6.dp else 8.dp)
+                        ) {
+                            // Pill Container
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = actionCircleSize),
+                                shape = RoundedCornerShape(24.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                                border = BorderStroke(0.75.dp, Color.White.copy(alpha = 0.08f)),
+                                tonalElevation = 2.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = if (isCompactWidth) 6.dp else 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (chat.isChannel && linkedDiscussionGroup != null) {
+                                        Box(modifier = Modifier.padding(end = 4.dp)) {
+                                            com.example.ui.channel.LinkedGroupAvatar(
+                                                groupId = linkedDiscussionGroup.id,
+                                                groupTitle = linkedDiscussionGroup.title,
+                                                avatarUrl = linkedDiscussionGroupCustom?.avatarUrl,
+                                                avatarSize = avatarSize,
+                                                testTag = "channel_admin_linked_group_avatar",
+                                                onClick = {
+                                                    focusManager.clearFocus()
+                                                    keyboardController?.hide()
+                                                    showMediaPanel = false
+                                                    navController.navigate("chat/${linkedDiscussionGroup.id}")
+                                                }
+                                            )
+                                        }
+                                    } else if (chat.isGroup && availableSendAsIdentities.isNotEmpty() && activeSendAsIdentity != null) {
+                                        Box(modifier = Modifier.padding(end = 4.dp)) {
+                                            com.example.ui.channel.LinkedGroupAvatar(
+                                                groupId = activeSendAsIdentity.id,
+                                                groupTitle = activeSendAsIdentity.title,
+                                                avatarUrl = activeSendAsIdentity.avatarUrl,
+                                                avatarSize = avatarSize,
+                                                testTag = "group_send_as_avatar_button",
+                                                onClick = { showSendAsMenu = true }
+                                            )
+                                            SendAsIdentityMenu(
+                                                expanded = showSendAsMenu,
+                                                identities = availableSendAsIdentities,
+                                                selectedIdentity = activeSendAsIdentity,
+                                                onSelect = { identity ->
+                                                    selectedSendAsIdentity = identity
+                                                    showSendAsMenu = false
+                                                },
+                                                onDismiss = { showSendAsMenu = false }
+                                            )
+                                        }
+                                    }
+
+                                    if (chat.isBot || chat.title.contains("BotFather", ignoreCase = true)) {
+                                        Box {
+                                            IconButton(
+                                                onClick = { botMenuExpanded = true },
+                                                modifier = Modifier.size(pillIconSize)
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.Terminal,
+                                                    contentDescription = "Команды бота",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            DropdownMenu(
+                                                expanded = botMenuExpanded,
+                                                onDismissRequest = { botMenuExpanded = false }
+                                            ) {
+                                                listOf(
+                                                    "/start" to "/start - старт/перезапуск бота",
+                                                    "/newbot" to "/newbot - создать нового бота",
+                                                    "/description" to "/description - описание бота",
+                                                    "/mybots" to "/mybots - список моих ботов"
+                                                ).forEach { (cmd, title) ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(title) },
+                                                        onClick = {
+                                                            botMenuExpanded = false
+                                                            viewModel.sendMessage(chatId, activeAccount?.id ?: "", cmd, null, expiresIn)
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (isVoiceRecording || isVideoRecording) {
+                                        com.example.ui.components.TelegramRecordingBar(
+                                            mode = inputMode,
+                                            recordingSeconds = recordingSeconds,
+                                            onCancel = {
+                                                isVoiceRecording = false
+                                                isVideoRecording = false
+                                                recordingSeconds = 0
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    } else {
+                                        // Keyboard / Media Panel Toggle
+                                        IconButton(
+                                            onClick = {
+                                                if (showMediaPanel) {
+                                                    showMediaPanel = false
+                                                    composerFocusRequester.requestFocus()
+                                                    keyboardController?.show()
+                                                } else {
+                                                    focusManager.clearFocus()
+                                                    keyboardController?.hide()
+                                                    mediaPanelInitialTab = MediaPanelTab.EMOJI
+                                                    showMediaPanel = true
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .size(pillIconSize)
+                                                .testTag("toggle_media_panel_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = if (showMediaPanel) Icons.Outlined.Keyboard else Icons.Outlined.SentimentSatisfied,
+                                                contentDescription = if (showMediaPanel) "Показать клавиатуру" else "Эмодзи, GIF и стикеры",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+
+                                        val placeholderLabel = when {
+                                            chat.isChannel && isSilentBroadcast -> "Тихая публикация..."
+                                            chat.isGroup && activeSendAsIdentity?.type == "GROUP" -> "От имени группы..."
+                                            chat.isGroup && activeSendAsIdentity?.type == "CHANNEL" -> "От имени ${activeSendAsIdentity.title}..."
+                                            else -> "Сообщение..."
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(horizontal = if (isCompactWidth) 4.dp else 6.dp, vertical = 6.dp),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (inputText.isEmpty()) {
+                                                Text(
+                                                    text = placeholderLabel,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                    fontSize = if (isCompactWidth) 15.sp else 16.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            BasicTextField(
+                                                value = inputText,
+                                                onValueChange = { inputText = it },
+                                                textStyle = TextStyle(
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    fontSize = if (isCompactWidth) 15.sp else 16.sp
+                                                ),
+                                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                                maxLines = 5,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(composerFocusRequester)
+                                                    .onFocusChanged { focusState ->
+                                                        if (focusState.isFocused && showMediaPanel) {
+                                                            showMediaPanel = false
+                                                        }
+                                                    }
+                                                    .semantics {
+                                                        contentDescription = "Поле ввода сообщения"
+                                                    }
+                                                    .testTag("chat_message_input")
+                                            )
+                                        }
+
+                                        if (chat.isChannel) {
+                                            IconButton(
+                                                onClick = {
+                                                    isSilentBroadcast = !isSilentBroadcast
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        if (isSilentBroadcast) "Тихая публикация включена" else "Уведомления о публикации включены",
+                                                        android.widget.Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+                                                modifier = Modifier.size(pillIconSize)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isSilentBroadcast) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications,
+                                                    contentDescription = "Тихая публикация",
+                                                    tint = if (isSilentBroadcast) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Box {
+                                            IconButton(
+                                                onClick = { attachmentMenuExpanded = true },
+                                                modifier = Modifier.size(pillIconSize)
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.AttachFile,
+                                                    contentDescription = "Прикрепить вложение",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(21.dp)
+                                                )
+                                            }
+                                            DropdownMenu(
+                                                expanded = attachmentMenuExpanded,
+                                                onDismissRequest = { attachmentMenuExpanded = false }
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = { Text("Фото / Галерея") },
+                                                    onClick = {
+                                                        attachmentMenuExpanded = false
+                                                        photoPickerLauncher.launch("image/*")
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Камера") },
+                                                    onClick = {
+                                                        attachmentMenuExpanded = false
+                                                        val photoDoc = org.json.JSONObject().apply {
+                                                            put("uri", "https://picsum.photos/seed/${System.currentTimeMillis()}/800")
+                                                            put("name", "Photo_${System.currentTimeMillis()}.jpg")
+                                                            put("size", 1024L * 320)
+                                                            put("mimeType", "image/jpeg")
+                                                        }.toString()
+                                                        viewModel.sendMessage(
+                                                            chatId = chatId,
+                                                            senderId = activeAccount?.id ?: "",
+                                                            text = "📷 Сделанное фото",
+                                                            audioPath = null,
+                                                            expiresIn = expiresIn,
+                                                            documentData = photoDoc
+                                                        )
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Filled.CameraAlt, contentDescription = null) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Файл") },
+                                                    onClick = {
+                                                        attachmentMenuExpanded = false
+                                                        filePickerLauncher.launch(arrayOf("*/*"))
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Геолокация") },
+                                                    onClick = {
+                                                        attachmentMenuExpanded = false
+                                                        viewModel.sendMessage(chatId, activeAccount?.id ?: "", "📍 Местоположение: 37.4221° N, 122.0841° W", null, expiresIn)
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Опрос") },
+                                                    onClick = {
+                                                        attachmentMenuExpanded = false
+                                                        showCreatePollDialog = true
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Filled.Poll, contentDescription = null, tint = Color(0xFF00E5FF)) }
+                                                )
+                                            }
+                                        }
+
+                                        if (chat.isBot) {
+                                            var showBotMenu by remember { mutableStateOf(false) }
+                                            IconButton(
+                                                onClick = { showBotMenu = true },
+                                                modifier = Modifier.size(pillIconSize)
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.Menu,
+                                                    contentDescription = "Меню команд бота",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            if (showBotMenu) {
+                                                DropdownMenu(
+                                                    expanded = showBotMenu,
+                                                    onDismissRequest = { showBotMenu = false }
+                                                ) {
+                                                    val botConfig = com.example.ui.botapi.BotRegistry.getBot(chat.id)
+                                                    val baseCommands = botConfig?.commands ?: listOf(com.example.ui.botapi.BotCommand("/start", "Start bot"), com.example.ui.botapi.BotCommand("/help", "Help"))
+                                                    val customCommands = (botConfig as? com.example.ui.botapi.CustomBot)?.customCommands ?: emptyList()
+                                                    (baseCommands + customCommands).forEach { cmd ->
+                                                        DropdownMenuItem(
+                                                            text = { Text("${cmd.command} - ${cmd.description}") },
+                                                            onClick = {
+                                                                viewModel.sendMessage(chatId, activeAccount?.id ?: "", cmd.command, null, expiresIn)
+                                                                showBotMenu = false
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // External circular Send / Voice-Video button
+                            if (inputText.isNotBlank() || currentForwardDraft != null) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .size(actionCircleSize)
+                                        .clip(CircleShape)
+                                        .combinedClickable(
+                                            onClick = {
+                                                if (currentForwardDraft != null) {
+                                                    com.example.analytics.AnalyticsTracker.logChatAction(
+                                                        action = "forward_messages",
+                                                        chatId = chatId,
+                                                        metadata = mapOf("count" to currentForwardDraft.messages.size)
+                                                    )
+                                                    viewModel.forwardMessages(
+                                                        targetChatId = chatId,
+                                                        senderId = activeAccount?.id ?: "",
+                                                        messagesToForward = currentForwardDraft.messages,
+                                                        hideSender = currentForwardDraft.hideSender
+                                                    )
+                                                    viewModel.clearForwardDraft(chatId)
+                                                }
+                                                if (inputText.isNotBlank()) {
+                                                    com.example.analytics.AnalyticsTracker.logChatAction(
+                                                        action = "send_message",
+                                                        chatId = chatId,
+                                                        metadata = mapOf(
+                                                            "length" to inputText.length,
+                                                            "has_reply" to (replyingToMessage != null),
+                                                            "is_custom_quote" to (customQuoteText != null)
+                                                        )
+                                                    )
+                                                    viewModel.sendMessage(
+                                                        chatId = chatId,
+                                                        senderId = activeAccount?.id ?: "",
+                                                        text = inputText,
+                                                        audioPath = null,
+                                                        expiresIn = expiresIn,
+                                                        documentData = null,
+                                                        replyToMessageId = replyingToMessage?.id,
+                                                        replyToMessageText = customQuoteText ?: replyingToMessage?.text,
+                                                        sendAsIdentity = if (chat.isGroup) activeSendAsIdentity else null
+                                                    )
+                                                    inputText = ""
+                                                    replyingToMessage = null
+                                                    customQuoteText = null
+                                                }
+                                            },
+                                            onClickLabel = "Отправить сообщение",
+                                            onLongClick = {
+                                                com.example.analytics.AnalyticsTracker.logButtonClick(
+                                                    buttonName = "schedule_message",
+                                                    module = "chat",
+                                                    metadata = mapOf("chat_id" to chatId)
+                                                )
+                                                showScheduleDialog = true
+                                            },
+                                            onLongClickLabel = "Запланировать отправку сообщения"
+                                        )
+                                        .semantics {
+                                            role = Role.Button
+                                            contentDescription = "Отправить сообщение. Долгое нажатие для отложенной отправки"
+                                        }
+                                        .testTag("chat_send_button")
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            } else {
+                                com.example.ui.components.TelegramRecordActionButton(
+                                    mode = inputMode,
+                                    isRecording = isVoiceRecording || isVideoRecording,
+                                    onToggleMode = {
+                                        inputMode = if (inputMode == com.example.ui.components.ChatInputMode.VOICE) {
+                                            com.example.ui.components.ChatInputMode.VIDEO
+                                        } else {
+                                            com.example.ui.components.ChatInputMode.VOICE
+                                        }
                                         com.example.analytics.AnalyticsTracker.logButtonClick(
-                                            buttonName = "schedule_message",
+                                            buttonName = "switch_record_mode_${inputMode.name.lowercase()}",
                                             module = "chat",
                                             metadata = mapOf("chat_id" to chatId)
                                         )
-                                        showScheduleDialog = true
                                     },
-                                    onLongClickLabel = "Запланировать отправку сообщения"
+                                    onStartRecording = { mode ->
+                                        if (mode == com.example.ui.components.ChatInputMode.VIDEO) {
+                                            isVideoRecording = true
+                                        } else {
+                                            isVoiceRecording = true
+                                        }
+                                    },
+                                    onStopAndSend = { mode ->
+                                        if (mode == com.example.ui.components.ChatInputMode.VIDEO) {
+                                            if (isVideoRecording) {
+                                                val duration = recordingSeconds.coerceAtLeast(1)
+                                                val minutes = duration / 60
+                                                val seconds = duration % 60
+                                                val durationStr = if (minutes > 0) String.format("%d:%02d", minutes, seconds) else String.format("0:%02d", seconds)
+                                                val videoDocData = """{"type":"video_note","duration":"$durationStr","durationSeconds":$duration,"isRound":true,"width":480,"height":480}"""
+                                                viewModel.sendMessage(
+                                                    chatId = chatId,
+                                                    senderId = activeAccount?.id ?: "",
+                                                    text = "📹 Видеосообщение ($durationStr)",
+                                                    audioPath = null,
+                                                    expiresIn = expiresIn,
+                                                    documentData = videoDocData,
+                                                    replyToMessageId = replyingToMessage?.id,
+                                                    replyToMessageText = customQuoteText ?: replyingToMessage?.text,
+                                                    mediaPath = "video_note_${System.currentTimeMillis()}.mp4",
+                                                    mediaType = "video_note"
+                                                )
+                                                replyingToMessage = null
+                                                customQuoteText = null
+                                            }
+                                            isVideoRecording = false
+                                        } else {
+                                            if (isVoiceRecording) {
+                                                val duration = recordingSeconds.coerceAtLeast(1)
+                                                val minutes = duration / 60
+                                                val seconds = duration % 60
+                                                val durationStr = if (minutes > 0) String.format("%d:%02d", minutes, seconds) else String.format("0:%02d", seconds)
+                                                viewModel.sendMessage(
+                                                    chatId = chatId,
+                                                    senderId = activeAccount?.id ?: "",
+                                                    text = "🎤 Голосовое сообщение ($durationStr)",
+                                                    audioPath = "voice_note_${System.currentTimeMillis()}.mp3",
+                                                    expiresIn = expiresIn,
+                                                    documentData = """{"type":"voice_note","duration":"$durationStr","durationSeconds":$duration}""",
+                                                    replyToMessageId = replyingToMessage?.id,
+                                                    replyToMessageText = customQuoteText ?: replyingToMessage?.text
+                                                )
+                                                replyingToMessage = null
+                                                customQuoteText = null
+                                            }
+                                            isVoiceRecording = false
+                                        }
+                                        recordingSeconds = 0
+                                    },
+                                    onCancelRecording = {
+                                        isVoiceRecording = false
+                                        isVideoRecording = false
+                                        recordingSeconds = 0
+                                    }
                                 )
-                                .semantics {
-                                    role = Role.Button
-                                    contentDescription = "Отправить сообщение. Долгое нажатие для отложенной отправки"
-                                }
-                                .padding(8.dp)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            }
                         }
-                    } else {
-                        com.example.ui.components.TelegramRecordActionButton(
-                            mode = inputMode,
-                            isRecording = isVoiceRecording || isVideoRecording,
-                            onToggleMode = {
-                                inputMode = if (inputMode == com.example.ui.components.ChatInputMode.VOICE) {
-                                    com.example.ui.components.ChatInputMode.VIDEO
-                                } else {
-                                    com.example.ui.components.ChatInputMode.VOICE
+                    }
+
+                    // Inline Telegram Emoji | GIF | Stickers Panel
+                    AnimatedVisibility(
+                        visible = showMediaPanel && !isVoiceRecording && !isVideoRecording,
+                        enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                        exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
+                    ) {
+                        TelegramMediaPanel(
+                            initialTab = mediaPanelInitialTab,
+                            onEmojiSelected = { emojiItem ->
+                                inputText += emojiItem.emoji
+                            },
+                            onBackspaceClick = {
+                                if (inputText.isNotEmpty()) {
+                                    val cp = Character.codePointBefore(inputText, inputText.length)
+                                    inputText = inputText.dropLast(Character.charCount(cp))
                                 }
-                                com.example.analytics.AnalyticsTracker.logButtonClick(
-                                    buttonName = "switch_record_mode_${inputMode.name.lowercase()}",
-                                    module = "chat",
-                                    metadata = mapOf("chat_id" to chatId)
+                            },
+                            onGifSelected = { gif ->
+                                viewModel.sendMessage(
+                                    chatId = chatId,
+                                    senderId = activeAccount?.id ?: "",
+                                    text = "🎞️ ${gif.title}",
+                                    audioPath = null,
+                                    expiresIn = expiresIn,
+                                    documentData = GifSearchRepository.buildGifDocumentData(gif),
+                                    replyToMessageId = replyingToMessage?.id,
+                                    replyToMessageText = customQuoteText ?: replyingToMessage?.text,
+                                    mediaPath = gif.gifUrl,
+                                    mediaType = "gif",
+                                    sendAsIdentity = if (chat.isGroup) activeSendAsIdentity else null
                                 )
+                                replyingToMessage = null
+                                customQuoteText = null
                             },
-                            onStartRecording = { mode ->
-                                if (mode == com.example.ui.components.ChatInputMode.VIDEO) {
-                                    isVideoRecording = true
-                                    com.example.analytics.AnalyticsTracker.logButtonClick(
-                                        buttonName = "start_video_note_record",
-                                        module = "chat",
-                                        metadata = mapOf("chat_id" to chatId)
-                                    )
-                                } else {
-                                    isVoiceRecording = true
-                                    com.example.analytics.AnalyticsTracker.logButtonClick(
-                                        buttonName = "start_voice_record",
-                                        module = "chat",
-                                        metadata = mapOf("chat_id" to chatId)
-                                    )
-                                }
+                            onStickerSelected = { pack, sticker ->
+                                viewModel.sendMessage(
+                                    chatId = chatId,
+                                    senderId = activeAccount?.id ?: "",
+                                    text = sticker.emoji,
+                                    audioPath = null,
+                                    expiresIn = expiresIn,
+                                    documentData = MediaExpressionManager.buildStickerDocumentData(pack.id, sticker),
+                                    replyToMessageId = replyingToMessage?.id,
+                                    replyToMessageText = customQuoteText ?: replyingToMessage?.text,
+                                    mediaPath = sticker.id,
+                                    mediaType = "sticker",
+                                    sendAsIdentity = if (chat.isGroup) activeSendAsIdentity else null
+                                )
+                                replyingToMessage = null
+                                customQuoteText = null
                             },
-                            onStopAndSend = { mode ->
-                                if (mode == com.example.ui.components.ChatInputMode.VIDEO) {
-                                    if (isVideoRecording) {
-                                        val duration = recordingSeconds.coerceAtLeast(1)
-                                        val minutes = duration / 60
-                                        val seconds = duration % 60
-                                        val durationStr = if (minutes > 0) String.format("%d:%02d", minutes, seconds) else String.format("0:%02d", seconds)
-                                        
-                                        com.example.analytics.AnalyticsTracker.logButtonClick(
-                                            buttonName = "send_video_note",
-                                            module = "chat",
-                                            metadata = mapOf("chat_id" to chatId, "duration" to duration)
-                                        )
-                                        val videoDocData = """{"type":"video_note","duration":"$durationStr","durationSeconds":$duration,"isRound":true,"width":480,"height":480}"""
-                                        viewModel.sendMessage(
-                                            chatId = chatId,
-                                            senderId = activeAccount?.id ?: "",
-                                            text = "📹 Видеосообщение ($durationStr)",
-                                            audioPath = null,
-                                            expiresIn = expiresIn,
-                                            documentData = videoDocData,
-                                            replyToMessageId = replyingToMessage?.id,
-                                            replyToMessageText = customQuoteText ?: replyingToMessage?.text,
-                                            mediaPath = "video_note_${System.currentTimeMillis()}.mp4",
-                                            mediaType = "video_note"
-                                        )
-                                        replyingToMessage = null
-                                        customQuoteText = null
-                                    }
-                                    isVideoRecording = false
-                                } else {
-                                    if (isVoiceRecording) {
-                                        val duration = recordingSeconds.coerceAtLeast(1)
-                                        val minutes = duration / 60
-                                        val seconds = duration % 60
-                                        val durationStr = if (minutes > 0) String.format("%d:%02d", minutes, seconds) else String.format("0:%02d", seconds)
-                                        
-                                        com.example.analytics.AnalyticsTracker.logButtonClick(
-                                            buttonName = "send_voice_record",
-                                            module = "chat",
-                                            metadata = mapOf("chat_id" to chatId, "duration" to duration)
-                                        )
-                                        viewModel.sendMessage(
-                                            chatId = chatId,
-                                            senderId = activeAccount?.id ?: "",
-                                            text = "🎤 Голосовое сообщение ($durationStr)",
-                                            audioPath = "voice_note_${System.currentTimeMillis()}.mp3",
-                                            expiresIn = expiresIn,
-                                            documentData = """{"type":"voice_note","duration":"$durationStr","durationSeconds":$duration}""",
-                                            replyToMessageId = replyingToMessage?.id,
-                                            replyToMessageText = customQuoteText ?: replyingToMessage?.text
-                                        )
-                                        replyingToMessage = null
-                                        customQuoteText = null
-                                    }
-                                    isVoiceRecording = false
-                                }
-                                recordingSeconds = 0
-                            },
-                            onCancelRecording = {
-                                isVoiceRecording = false
-                                isVideoRecording = false
-                                recordingSeconds = 0
-                            },
-                            modifier = Modifier.padding(horizontal = 4.dp)
+                            onOpenSettings = {
+                                showMediaPanel = false
+                                navController.navigate(com.example.ui.navigation.AppDestinations.SETTINGS_STICKERS_EMOJI)
+                            }
                         )
                     }
                 }
             }
         }
-    }
-}
 }
     ) { padding ->
         
@@ -3058,6 +3199,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                         isBot = isBot,
                                         isSelectionMode = isSelectionMode,
                                         isSelected = isSelected,
+                                        largeEmojiEnabled = largeEmojiEnabled,
                                         message = message, 
                                         isMe = isMe,
                                         onClick = {
@@ -3065,6 +3207,11 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                                 selectedMessageIds = if (isSelected) selectedMessageIds - message.id else selectedMessageIds + message.id
                                             } else {
                                                 showReactionDialogFor = message.id
+                                            }
+                                        },
+                                        onDoubleClick = {
+                                            if (!isSelectionMode) {
+                                                viewModel.addReaction(message.id, quickReactionEmoji)
                                             }
                                         },
                                         onLongClick3s = {
@@ -4706,14 +4853,80 @@ fun MessageBubble(
     isBot: Boolean = false,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
+    largeEmojiEnabled: Boolean = true,
     onClick: () -> Unit, 
     onLongClick3s: () -> Unit, 
+    onDoubleClick: (() -> Unit)? = null,
     onAuthorClick: ((String) -> Unit)? = null,
     onOpenInviteUrl: ((String) -> Unit)? = null,
     onButtonClick: ((String) -> Unit)? = null,
     onImageClick: ((LightboxMediaItem) -> Unit)? = null,
     onOpenVideoNote: (() -> Unit)? = null
 ) {
+    val stickerPayload = remember(message) {
+        MediaExpressionManager.parseStickerFromMessage(message)
+    }
+    if (stickerPayload != null) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .telegramMessageGestures(
+                    onClick = onClick,
+                    onLongClick3s = onLongClick3s,
+                    onDoubleClick = onDoubleClick
+                ),
+            horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+        ) {
+            if (senderName != null && !isMe) {
+                Text(
+                    text = senderName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
+            StickerBubbleArtwork(
+                payload = stickerPayload,
+                size = 156.dp
+            )
+            if (message.reaction != null) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFF232936),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(message.reaction, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                }
+            }
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Black.copy(alpha = 0.45f),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        formatTime(message.timestamp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                    if (isMe) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (message.isRead || message.isDelivered) Icons.Filled.DoneAll else Icons.Filled.Schedule,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp),
+                            tint = if (message.isRead) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val isVideoNote = message.mediaType == "video_note" ||
             (message.documentData != null && message.documentData.contains("\"video_note\"")) ||
             (message.text.startsWith("📹") && (message.mediaPath != null || message.documentData != null || message.text.contains("Видеосообщение")))
@@ -4869,7 +5082,8 @@ fun MessageBubble(
                             Unit
                         }
                     } else onClick,
-                    onLongClick3s = onLongClick3s
+                    onLongClick3s = onLongClick3s,
+                    onDoubleClick = onDoubleClick
                 )
                 .padding(12.dp)
         ) {
@@ -5103,6 +5317,23 @@ fun MessageBubble(
                             }
                         }
                     }
+                } else if (GifSearchRepository.parseGifFromMessage(message) != null) {
+                    val gifMsg = remember(message) { GifSearchRepository.parseGifFromMessage(message)!! }
+                    Column(modifier = Modifier.widthIn(min = 180.dp, max = 260.dp)) {
+                        GifGridTile(
+                            gif = gifMsg,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    onClick()
+                                } else {
+                                    lightboxItem?.let { onImageClick?.invoke(it) } ?: onClick()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(164.dp)
+                        )
+                    }
                 } else if (message.documentData?.contains("\"type\":\"group_invite_card\"") == true) {
                     GroupInviteMessageCard(
                         documentData = message.documentData,
@@ -5199,13 +5430,29 @@ fun MessageBubble(
                     val hasInviteLink = remember(message.text) {
                         message.text.contains("t.me/+", ignoreCase = true)
                     }
+                    val pureEmojiCount = remember(message.text, largeEmojiEnabled) {
+                        if (largeEmojiEnabled) MediaExpressionManager.countPureEmojis(message.text) else 0
+                    }
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (message.isE2EEncrypted) {
-                                Icon(Icons.Filled.Lock, contentDescription = "Encrypted", modifier = Modifier.size(12.dp), tint = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha=0.6f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.6f))
-                                Spacer(Modifier.width(4.dp))
+                        if (pureEmojiCount in 1..3) {
+                            val emojiSize = when (pureEmojiCount) {
+                                1 -> 44.sp
+                                2 -> 38.sp
+                                else -> 32.sp
                             }
-                            Text(message.text, color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                text = message.text.trim(),
+                                fontSize = emojiSize,
+                                lineHeight = emojiSize * 1.15f
+                            )
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (message.isE2EEncrypted) {
+                                    Icon(Icons.Filled.Lock, contentDescription = "Encrypted", modifier = Modifier.size(12.dp), tint = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha=0.6f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.6f))
+                                    Spacer(Modifier.width(4.dp))
+                                }
+                                Text(message.text, color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                            }
                         }
                         if (hasInviteLink && onOpenInviteUrl != null) {
                             val extractedUrl = remember(message.text) {

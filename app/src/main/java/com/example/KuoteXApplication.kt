@@ -67,6 +67,11 @@ class KuoteXApplication : Application(), ImageLoaderFactory {
         } catch (e: Exception) {
             Log.w("KuoteXApplication", "FirestoreUserRoleManager init: ${e.message}")
         }
+        try {
+            com.example.ui.media.MediaExpressionManager.init(this)
+        } catch (e: Exception) {
+            Log.w("KuoteXApplication", "MediaExpressionManager init: ${e.message}")
+        }
 
         // 4. Initialize Background Silent Firestore WorkManager Worker
         try {
@@ -120,6 +125,13 @@ class KuoteXApplication : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
+            .components {
+                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    add(coil.decode.ImageDecoderDecoder.Factory())
+                } else {
+                    add(coil.decode.GifDecoder.Factory())
+                }
+            }
             .crossfade(true)
             .allowHardware(false)
             .build()

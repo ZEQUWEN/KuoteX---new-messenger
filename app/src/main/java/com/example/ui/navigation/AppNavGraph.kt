@@ -68,6 +68,9 @@ object AppDestinations {
     const val SETTINGS_FOLDER_EDIT = "settings/folders/edit?folderId={folderId}"
     fun folderEditRoute(folderId: String? = null) = if (folderId != null) "settings/folders/edit?folderId=$folderId" else "settings/folders/edit"
     const val SETTINGS_PRIVACY = "settings/privacy/{title}"
+    const val SETTINGS_STICKERS_EMOJI = "settings/stickers_emoji"
+    const val SETTINGS_EMOJI_PACKS = "settings/stickers_emoji/emoji_packs"
+    const val SETTINGS_QUICK_REACTION = "settings/stickers_emoji/quick_reaction"
     const val CHAT = "chat/{chatId}"
     const val CALL = "call/{chatId}?isVideo={isVideo}"
     const val SANDBOX = "sandbox/{botId}"
@@ -469,6 +472,19 @@ fun MainAppNavGraph(
                 navController = navController,
                 folderId = folderId
             )
+        }
+        composable(AppDestinations.SETTINGS_STICKERS_EMOJI) {
+            com.example.ui.media.StickersAndEmojiScreen(
+                navController = navController,
+                onOpenEmojiPacks = { navController.navigate(AppDestinations.SETTINGS_EMOJI_PACKS) },
+                onOpenQuickReaction = { navController.navigate(AppDestinations.SETTINGS_QUICK_REACTION) }
+            )
+        }
+        composable(AppDestinations.SETTINGS_EMOJI_PACKS) {
+            com.example.ui.media.EmojiPacksSettingsScreen(navController = navController)
+        }
+        composable(AppDestinations.SETTINGS_QUICK_REACTION) {
+            com.example.ui.media.QuickReactionSettingsScreen(navController = navController)
         }
         composable(AppDestinations.CHAT) { backStackEntry ->
             val chatId = backStackEntry.arguments?.getString("chatId")
