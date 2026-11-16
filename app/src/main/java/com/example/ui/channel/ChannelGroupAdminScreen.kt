@@ -142,7 +142,7 @@ fun ChannelGroupAdminScreen(
 
     var channelTitle by remember(chatId, chat?.title) { mutableStateOf(chat?.title ?: "Канал") }
     var channelDesc by remember(chatId) { mutableStateOf(customization.description) }
-    var selectedStatusEmoji by remember(chatId) { mutableStateOf(customization.emojiStatus ?: "🪫") }
+    var selectedStatusEmoji by remember(chatId, customization.emojiStatus) { mutableStateOf(customization.emojiStatus) }
 
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showBoostRequirementDialog by remember { mutableStateOf(false) }
@@ -181,13 +181,14 @@ fun ChannelGroupAdminScreen(
     }
 
     if (showEmojiPicker) {
-        TelegramEmojiPickerBottomSheet(
-            onDismissRequest = { showEmojiPicker = false },
-            selectedEmoji = selectedStatusEmoji,
-            onEmojiSelected = { emojiItem ->
-                selectedStatusEmoji = emojiItem.emoji
+        TelegramChannelEmojiPickerDialog(
+            title = "Эмодзи-статус канала",
+            currentEmoji = selectedStatusEmoji,
+            onSelectEmoji = { emoji ->
+                selectedStatusEmoji = emoji
+                ChannelCustomizationManager.updateEmojiStatus(chatId, emoji, isAnimated = emoji != null)
             },
-            title = "Выберите статус канала"
+            onDismiss = { showEmojiPicker = false }
         )
     }
 
@@ -513,11 +514,13 @@ fun ChannelGroupAdminScreen(
                                         }
                                     )
 
-                                    Spacer(Modifier.width(4.dp))
-                                    AnimatedEmojiStatusBadge(
-                                        emoji = selectedStatusEmoji,
-                                        onClick = { showEmojiPicker = true }
-                                    )
+                                    if (!selectedStatusEmoji.isNullOrBlank()) {
+                                        Spacer(Modifier.width(4.dp))
+                                        AnimatedEmojiStatusBadge(
+                                            emoji = selectedStatusEmoji!!,
+                                            onClick = { showEmojiPicker = true }
+                                        )
+                                    }
                                     IconButton(
                                         onClick = { showEmojiPicker = true },
                                         modifier = Modifier.size(36.dp)
@@ -680,12 +683,35 @@ fun ChannelGroupAdminScreen(
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)
 
+                        val msgScheme = customization.activeMessageScheme
                         AdminMenuRow(
                             icon = Icons.Filled.Palette,
                             title = "Оформление",
-                            value = chat?.title?.take(10) ?: "KuoteX ✨",
-                            badgeText = "🔒 Уровень 1+",
+                            value = "",
                             testTag = "admin_row_appearance",
+                            trailingContent = {
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = msgScheme.accentColor.copy(alpha = 0.22f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = channelTitle.ifBlank { "KuoteX" },
+                                            color = msgScheme.accentColor,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                            maxLines = 1
+                                        )
+                                        if (!selectedStatusEmoji.isNullOrBlank()) {
+                                            Spacer(Modifier.width(5.dp))
+                                            Text(text = selectedStatusEmoji!!, fontSize = 13.sp)
+                                        }
+                                    }
+                                }
+                            },
                             onClick = { navController.navigateSafe("channel_appearance/$chatId") }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = TelegramAdminDividerColor)

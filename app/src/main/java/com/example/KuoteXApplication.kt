@@ -72,6 +72,11 @@ class KuoteXApplication : Application(), ImageLoaderFactory {
         } catch (e: Exception) {
             Log.w("KuoteXApplication", "MediaExpressionManager init: ${e.message}")
         }
+        try {
+            com.example.ui.channel.ChannelCustomizationManager.init(this)
+        } catch (e: Exception) {
+            Log.w("KuoteXApplication", "ChannelCustomizationManager init: ${e.message}")
+        }
 
         // 4. Initialize Background Silent Firestore WorkManager Worker
         try {

@@ -400,6 +400,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     
     LaunchedEffect(chatId) {
         MediaExpressionManager.init(context)
+        ChannelCustomizationManager.init(context)
         viewModel.markMessagesAsRead(chatId, activeAccount?.id ?: "")
     }
 
@@ -421,8 +422,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     val channelCustomizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val allCustomizationsMap by ChannelCustomizationManager.getAllCustomizationsFlow().collectAsState()
     val channelCustomization = channelCustomizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
-    val channelPalette = TelegramProfilePalettes.getPalette(channelCustomization.profileColorId)
-    val channelWallpaper = TelegramWallpapers.getWallpaper(channelCustomization.wallpaperId)
+    val channelMessageScheme = channelCustomization.activeMessageScheme
     val channelPollsMap by ChannelCustomizationManager.getPollsFlow(chatId).collectAsState()
     val channelPolls = channelPollsMap[chatId] ?: emptyList()
     var showCreatePollDialog by remember { mutableStateOf(false) }
@@ -693,11 +693,11 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     softWrap = false
                                 )
-                                if (channelCustomization.emojiStatus != null) {
+                                if (!channelCustomization.emojiStatus.isNullOrBlank()) {
                                     Spacer(modifier = Modifier.width(6.dp))
                                     AnimatedEmojiStatusBadge(
                                         emoji = channelCustomization.emojiStatus,
-                                        glowColor = channelPalette.primaryColor,
+                                        glowColor = channelMessageScheme.accentColor,
                                         size = 20.dp,
                                         fontSize = 12.sp,
                                         onClick = {
@@ -2902,11 +2902,10 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
             }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // Channel / Chat Custom Wallpaper Background
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Brush.verticalGradient(channelWallpaper.previewGradient))
+                // Channel / Chat Custom Wallpaper Background (preset, gallery photo + blur/dim, or none)
+                com.example.ui.channel.ChannelBackgroundLayer(
+                    customization = channelCustomization,
+                    modifier = Modifier.fillMaxSize()
                 )
                 if (chat.isBot && filteredMessages.isEmpty() && !isSearchMode) {
                     val botObj = com.example.ui.botapi.BotRegistry.getBot(chatId) ?: com.example.ui.botapi.BotRegistry.getCustomBots().find { it.id == chatId }
@@ -3194,12 +3193,14 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                         senderName = senderName,
                                         senderStatus = senderStatus,
                                         senderCustomTag = senderCustomTag,
-                                        senderEmojiStatus = senderEmoji,
+                                        senderEmojiStatus = if (chat.isChannel && message.senderIdentityType == "CHANNEL") channelCustomization.emojiStatus else senderEmoji,
                                         isGroupChat = chat.isGroup,
                                         isBot = isBot,
                                         isSelectionMode = isSelectionMode,
                                         isSelected = isSelected,
                                         largeEmojiEnabled = largeEmojiEnabled,
+                                        channelAccentScheme = if (chat.isChannel) channelMessageScheme else null,
+                                        channelBgEmoji = if (chat.isChannel) channelCustomization.messageEmojiPattern else null,
                                         message = message, 
                                         isMe = isMe,
                                         onClick = {
@@ -4854,6 +4855,8 @@ fun MessageBubble(
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
     largeEmojiEnabled: Boolean = true,
+    channelAccentScheme: com.example.ui.channel.MessageColorScheme? = null,
+    channelBgEmoji: String? = null,
     onClick: () -> Unit, 
     onLongClick3s: () -> Unit, 
     onDoubleClick: (() -> Unit)? = null,
@@ -5046,7 +5049,17 @@ fun MessageBubble(
                     Spacer(Modifier.width(4.dp))
                 }
                 Column(horizontalAlignment = if (isMe) Alignment.End else Alignment.Start) {
-                    Text(senderName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            senderName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = channelAccentScheme?.accentColor ?: MaterialTheme.colorScheme.primary
+                        )
+                        if (!senderEmojiStatus.isNullOrBlank()) {
+                            Spacer(Modifier.width(4.dp))
+                            Text(senderEmojiStatus, fontSize = 11.sp)
+                        }
+                    }
                     if (senderStatus != null && senderStatus.isNotEmpty()) {
                         Text(senderStatus, style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -5087,6 +5100,14 @@ fun MessageBubble(
                 )
                 .padding(12.dp)
         ) {
+            if (!channelBgEmoji.isNullOrBlank()) {
+                com.example.ui.channel.EmojiWatermarkScatterLayer(
+                    emoji = channelBgEmoji,
+                    alpha = 0.16f,
+                    densityScale = 5,
+                    modifier = Modifier.matchParentSize()
+                )
+            }
             Column {
                 if (isGroupChat && senderName != null) {
                     Row(
@@ -5193,7 +5214,7 @@ fun MessageBubble(
 
                 if (message.replyToMessageText != null) {
                     Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                        color = channelAccentScheme?.quoteBackgroundDark ?: MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -5204,18 +5225,24 @@ fun MessageBubble(
                                 .height(IntrinsicSize.Min)
                                 .padding(4.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                .width(4.dp)
-                                .fillMaxHeight()
-                                .background(if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
-                            )
+                            if (channelAccentScheme != null) {
+                                com.example.ui.channel.StripedQuoteAccentBar(
+                                    stripeColors = channelAccentScheme.stripeColors
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .fillMaxHeight()
+                                        .background(if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                                )
+                            }
                             Spacer(modifier = Modifier.width(6.dp))
                             Column {
                                 Text(
-                                    text = "Reply",
+                                    text = if (channelAccentScheme != null && !senderName.isNullOrBlank()) senderName else "Reply",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
+                                    color = channelAccentScheme?.accentColor ?: if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                 )
                                 Text(

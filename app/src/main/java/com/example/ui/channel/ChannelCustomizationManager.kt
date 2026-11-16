@@ -1,9 +1,12 @@
 package com.example.ui.channel
 
+import android.content.Context
+import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import org.json.JSONObject
 
 /**
  * ChannelCustomizationManager
@@ -11,6 +14,10 @@ import kotlinx.coroutines.flow.update
  * animated emoji statuses, wallpaper preferences, polls, and admin logs.
  */
 object ChannelCustomizationManager {
+
+    private const val PREFS_NAME = "kuotex_channel_appearance_prefs"
+    private const val KEY_APPEARANCE_MAP = "appearance_map_json"
+    private var prefs: SharedPreferences? = null
 
     private val customizations = MutableStateFlow<Map<String, ChannelCustomization>>(
         mapOf(
@@ -140,6 +147,72 @@ object ChannelCustomizationManager {
         )
     )
 
+    fun init(context: Context) {
+        if (prefs != null) return
+        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        loadPersistedAppearances()
+    }
+
+    private fun loadPersistedAppearances() {
+        val raw = prefs?.getString(KEY_APPEARANCE_MAP, null) ?: return
+        try {
+            val root = JSONObject(raw)
+            customizations.update { currentMap ->
+                val mutable = currentMap.toMutableMap()
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val chatId = keys.next()
+                    val obj = root.optJSONObject(chatId) ?: continue
+                    val base = mutable[chatId] ?: ChannelCustomization(chatId = chatId)
+                    val headerColorRaw = obj.optInt("profileHeaderColorId", base.profileHeaderColorId ?: -1)
+                    val resolvedHeaderColor: Int? = if (headerColorRaw < 0) null else headerColorRaw
+                    mutable[chatId] = base.copy(
+                        emojiStatus = if (obj.isNull("emojiStatus")) null else obj.optString("emojiStatus", base.emojiStatus ?: "").ifBlank { null },
+                        emojiStatusAnimated = obj.optBoolean("emojiStatusAnimated", base.emojiStatusAnimated),
+                        messageColorId = obj.optInt("messageColorId", base.messageColorId),
+                        messageEmojiPattern = if (obj.isNull("messageEmojiPattern")) null else obj.optString("messageEmojiPattern", "").ifBlank { null },
+                        profileColorId = obj.optInt("profileColorId", base.profileColorId),
+                        profileHeaderColorId = resolvedHeaderColor,
+                        profileEmojiPattern = if (obj.isNull("profileEmojiPattern")) null else obj.optString("profileEmojiPattern", "").ifBlank { null },
+                        chatWallpaperId = obj.optString("chatWallpaperId", base.chatWallpaperId),
+                        wallpaperCustomUri = if (obj.isNull("wallpaperCustomUri")) null else obj.optString("wallpaperCustomUri", "").ifBlank { null },
+                        wallpaperBlur = obj.optDouble("wallpaperBlur", base.wallpaperBlur.toDouble()).toFloat(),
+                        wallpaperDim = obj.optDouble("wallpaperDim", base.wallpaperDim.toDouble()).toFloat(),
+                        wallpaperPatternOpacity = obj.optDouble("wallpaperPatternOpacity", base.wallpaperPatternOpacity.toDouble()).toFloat()
+                    )
+                }
+                mutable
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun persistAppearances() {
+        val activePrefs = prefs ?: return
+        try {
+            val root = JSONObject()
+            customizations.value.forEach { (chatId, c) ->
+                val obj = JSONObject().apply {
+                    put("emojiStatus", c.emojiStatus ?: JSONObject.NULL)
+                    put("emojiStatusAnimated", c.emojiStatusAnimated)
+                    put("messageColorId", c.messageColorId)
+                    put("messageEmojiPattern", c.messageEmojiPattern ?: JSONObject.NULL)
+                    put("profileColorId", c.profileColorId)
+                    put("profileHeaderColorId", c.profileHeaderColorId ?: -1)
+                    put("profileEmojiPattern", c.profileEmojiPattern ?: JSONObject.NULL)
+                    put("chatWallpaperId", c.chatWallpaperId)
+                    put("wallpaperCustomUri", c.wallpaperCustomUri ?: JSONObject.NULL)
+                    put("wallpaperBlur", c.wallpaperBlur.toDouble())
+                    put("wallpaperDim", c.wallpaperDim.toDouble())
+                    put("wallpaperPatternOpacity", c.wallpaperPatternOpacity.toDouble())
+                }
+                root.put(chatId, obj)
+            }
+            activePrefs.edit().putString(KEY_APPEARANCE_MAP, root.toString()).apply()
+        } catch (_: Exception) {
+        }
+    }
+
     fun getCustomizationFlow(chatId: String): StateFlow<Map<String, ChannelCustomization>> = customizations.asStateFlow()
 
     fun getAllCustomizationsFlow(): StateFlow<Map<String, ChannelCustomization>> = customizations.asStateFlow()
@@ -169,6 +242,7 @@ object ChannelCustomizationManager {
             val updated = current.copy(emojiStatus = emoji, emojiStatusAnimated = isAnimated)
             map + (chatId to updated)
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = if (emoji != null) "Изменен эмодзи-статус" else "Удален эмодзи-статус",
@@ -181,15 +255,34 @@ object ChannelCustomizationManager {
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
             val updated = current.copy(
                 profileColorId = colorId,
+                messageColorId = colorId,
+                profileHeaderColorId = colorId,
                 profileEmojiPattern = emojiPattern ?: current.profileEmojiPattern
             )
             map + (chatId to updated)
         }
-        val paletteName = TelegramProfilePalettes.getPalette(colorId).name
+        persistAppearances()
+        val paletteName = TelegramMessageColors.getScheme(colorId).name
         logAdminAction(
             chatId = chatId,
             title = "Изменен цвет профиля",
             details = "Выбран стиль '$paletteName'"
+        )
+    }
+
+    fun resetProfileColor(chatId: String) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            map + (chatId to current.copy(
+                profileHeaderColorId = null,
+                profileEmojiPattern = null
+            ))
+        }
+        persistAppearances()
+        logAdminAction(
+            chatId = chatId,
+            title = "Сброшен цвет профиля",
+            details = "Профиль возвращён к стандартной теме"
         )
     }
 
@@ -198,7 +291,7 @@ object ChannelCustomizationManager {
         wallpaperId: String,
         customUri: String? = null,
         blur: Float = 0f,
-        dim: Float = 0.2f,
+        dim: Float = 0.25f,
         patternOpacity: Float = 0.35f
     ) {
         customizations.update { map ->
@@ -212,11 +305,53 @@ object ChannelCustomizationManager {
             )
             map + (chatId to updated)
         }
-        val wallpaperName = TelegramWallpapers.getPreset(wallpaperId).name
+        persistAppearances()
+        val wallpaperName = if (wallpaperId == "custom_gallery") "Фото из галереи" else TelegramWallpapers.getPreset(wallpaperId).name
         logAdminAction(
             chatId = chatId,
             title = "Установлены обои чата",
             details = "Выбраны обои: $wallpaperName (Затемнение: ${(dim * 100).toInt()}%)"
+        )
+    }
+
+    fun updateChannelAppearance(
+        chatId: String,
+        messageColorId: Int,
+        messageEmojiPattern: String?,
+        profileHeaderColorId: Int?,
+        profileEmojiPattern: String?,
+        emojiStatus: String?,
+        wallpaperId: String,
+        customWallpaperUri: String?,
+        wallpaperBlur: Float,
+        wallpaperDim: Float,
+        wallpaperPatternOpacity: Float = 0.35f
+    ) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            val updated = current.copy(
+                messageColorId = messageColorId,
+                messageEmojiPattern = messageEmojiPattern,
+                profileColorId = messageColorId,
+                profileHeaderColorId = profileHeaderColorId,
+                profileEmojiPattern = profileEmojiPattern,
+                emojiStatus = emojiStatus,
+                emojiStatusAnimated = emojiStatus != null,
+                chatWallpaperId = wallpaperId,
+                wallpaperCustomUri = if (wallpaperId == "custom_gallery") customWallpaperUri else null,
+                wallpaperBlur = wallpaperBlur.coerceIn(0f, 24f),
+                wallpaperDim = wallpaperDim.coerceIn(0f, 0.85f),
+                wallpaperPatternOpacity = wallpaperPatternOpacity
+            )
+            map + (chatId to updated)
+        }
+        persistAppearances()
+        val schemeName = TelegramMessageColors.getScheme(messageColorId).name
+        val wpName = if (wallpaperId == "custom_gallery") "Фото из галереи" else TelegramWallpapers.getPreset(wallpaperId).name
+        logAdminAction(
+            chatId = chatId,
+            title = "Обновлено оформление канала",
+            details = "Цветовая схема: $schemeName, Обои: $wpName"
         )
     }
 

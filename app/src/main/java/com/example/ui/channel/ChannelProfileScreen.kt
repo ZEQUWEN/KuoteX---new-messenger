@@ -219,14 +219,18 @@ fun ChannelProfileScreen(
 
     // Live Status Emoji Picker
     if (showEmojiPicker) {
-        TelegramEmojiPickerBottomSheet(
-            onDismissRequest = { showEmojiPicker = false },
-            selectedEmoji = customization.emojiStatus,
-            onEmojiSelected = { emojiItem ->
-                ChannelCustomizationManager.updateEmojiStatus(chatId, emojiItem.emoji, isAnimated = true)
-                Toast.makeText(context, "Статус обновлен: ${emojiItem.emoji}", Toast.LENGTH_SHORT).show()
+        TelegramChannelEmojiPickerDialog(
+            title = "Эмодзи-статус канала",
+            currentEmoji = customization.emojiStatus,
+            onSelectEmoji = { chosenEmoji ->
+                ChannelCustomizationManager.updateEmojiStatus(chatId, chosenEmoji, isAnimated = chosenEmoji != null)
+                Toast.makeText(
+                    context,
+                    if (chosenEmoji != null) "Статус обновлен: $chosenEmoji" else "Статус убран",
+                    Toast.LENGTH_SHORT
+                ).show()
             },
-            title = "Выберите статус канала"
+            onDismiss = { showEmojiPicker = false }
         )
     }
 
@@ -604,59 +608,87 @@ fun ChannelProfileScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F141C))
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = customization.activeProfileHeaderScheme?.headerGradient?.firstOrNull()
+                        ?: Color(0xFF0F141C)
+                )
             )
         }
     ) { padding ->
+        val headerScheme = customization.activeProfileHeaderScheme
+        val screenBgColors = if (headerScheme != null) {
+            listOf(
+                headerScheme.headerGradient.first(),
+                headerScheme.headerGradient.last().copy(alpha = 0.65f),
+                Color(0xFF0B0E14)
+            )
+        } else {
+            listOf(Color(0xFF0F141C), Color(0xFF141A25), Color(0xFF0B0E14))
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF0F141C), Color(0xFF141A25), Color(0xFF0B0E14))
-                    )
-                )
+                .background(Brush.verticalGradient(screenBgColors))
                 .padding(horizontal = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // --- HEADER PROFILE CARD (Telegram Exact Layout) ---
             item {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .clip(RoundedCornerShape(22.dp))
                 ) {
-                    // Circular Avatar with Camera Badge (Persistent Avatar)
-                    Box(
-                        modifier = Modifier.size(96.dp),
-                        contentAlignment = Alignment.Center
+                    if (!customization.profileEmojiPattern.isNullOrBlank()) {
+                        EmojiWatermarkScatterLayer(
+                            emoji = customization.profileEmojiPattern,
+                            alpha = 0.22f,
+                            densityScale = 10,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        val avatarRingBrush = headerScheme?.let {
+                            Brush.sweepGradient(it.ringColors + it.ringColors.first())
+                        } ?: Brush.linearGradient(listOf(Color(0xFF4CD964), Color(0xFF3E95EA)))
+
+                        // Circular Avatar with colored ring & Camera Badge (Persistent Avatar)
                         Box(
-                            modifier = Modifier
-                                .size(96.dp)
-                                .clip(CircleShape)
-                                .then(
-                                    if (isAdmin) {
-                                        Modifier.clickable {
-                                            channelPhotoPickerLauncher.launch(
-                                                androidx.activity.result.PickVisualMediaRequest(
-                                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
-                                                )
-                                            )
-                                        }
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFFFF9900), Color(0xFFFF5E36))
-                                    )
-                                ),
+                            modifier = Modifier.size(102.dp),
                             contentAlignment = Alignment.Center
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(102.dp)
+                                    .clip(CircleShape)
+                                    .border(2.5.dp, avatarRingBrush, CircleShape)
+                                    .padding(4.dp)
+                                    .clip(CircleShape)
+                                    .then(
+                                        if (isAdmin) {
+                                            Modifier.clickable {
+                                                channelPhotoPickerLauncher.launch(
+                                                    androidx.activity.result.PickVisualMediaRequest(
+                                                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                    )
+                                                )
+                                            }
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .background(
+                                        headerScheme?.let { Brush.linearGradient(listOf(it.primaryColor, it.secondaryColor)) }
+                                            ?: Brush.linearGradient(listOf(Color(0xFFFF9900), Color(0xFFFF5E36)))
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
                             if (hasCustomChannelAvatar || !customization.avatarUrl.isNullOrEmpty()) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
@@ -737,34 +769,43 @@ fun ChannelProfileScreen(
                                 .padding(horizontal = 20.dp, vertical = 10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            // Title with Status Emoji Badge
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = chat?.title ?: "KuoteX Official",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color.White.copy(alpha = 0.12f))
-                                        .then(
-                                            if (isAdmin) Modifier.clickable { showEmojiPicker = true } else Modifier
-                                        )
-                                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                                    contentAlignment = Alignment.Center
+                                // Title with Status Emoji Badge
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
                                 ) {
                                     Text(
-                                        text = customization.emojiStatus ?: "🪫",
-                                        fontSize = 16.sp
+                                        text = chat?.title ?: "KuoteX Official",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
                                     )
+                                    val statusEmoji = customization.emojiStatus
+                                    if (!statusEmoji.isNullOrBlank()) {
+                                        Spacer(Modifier.width(6.dp))
+                                        AnimatedEmojiStatusBadge(
+                                            emoji = statusEmoji,
+                                            glowColor = headerScheme?.primaryColor ?: palette.primaryColor,
+                                            size = 24.dp,
+                                            fontSize = 15.sp,
+                                            isAnimated = customization.emojiStatusAnimated,
+                                            showBackgroundBadge = false,
+                                            onClick = if (isAdmin) {
+                                                { showEmojiPicker = true }
+                                            } else null
+                                        )
+                                    } else if (isAdmin) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Icon(
+                                            imageVector = Icons.Outlined.SentimentSatisfied,
+                                            contentDescription = "Установить статус",
+                                            tint = Color.White.copy(alpha = 0.65f),
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clickable { showEmojiPicker = true }
+                                        )
+                                    }
                                 }
-                            }
 
                             Spacer(Modifier.height(5.dp))
 
@@ -963,6 +1004,7 @@ fun ChannelProfileScreen(
                             )
                         }
                     }
+                }
                 }
             }
 

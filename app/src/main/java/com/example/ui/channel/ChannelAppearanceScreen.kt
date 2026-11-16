@@ -1,53 +1,88 @@
 package com.example.ui.channel
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.WbSunny
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.example.ui.AppViewModel
+import com.example.ui.popBackStackSafe
+import kotlinx.coroutines.launch
+
+private enum class ChannelEmojiTarget {
+    MESSAGE_PATTERN,
+    PROFILE_PATTERN,
+    STATUS_EMOJI
+}
 
 /**
- * ChannelAppearanceScreen
- * Telegram-style Channel/Group Appearance and Profile Customization:
- * - 7 Profile Colors & Quote Gradients
- * - Animated Custom Emoji in Channel Header
- * - Chat Wallpapers with Blur & Dimming
- * - Live Interactive Preview Card
+ * ChannelAppearanceScreen ("Оформление")
+ * Matches Telegram mobile channel customization:
+ * - Light/Dark live preview toggle in TopBar
+ * - Live Message + Reply + Link Preview card with single/2-tone/3-tone striped quote accents
+ * - Message Background Emoji & 19 multi-tone color swatches
+ * - Wallpapers carousel ("Из галереи" via PickVisualMedia, "Без обоев", themed presets) + Dim/Blur sliders
+ * - Profile Header live preview with 16-swatch 2-row palette, Background Emoji & "Сбросить цвет профиля"
+ * - Channel Emoji Status selector & immediate "Применить изменения" CTA
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,462 +92,524 @@ fun ChannelAppearanceScreen(
     navController: NavController
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        ChannelCustomizationManager.init(context)
+    }
+
+    val chats by viewModel.chats.collectAsStateWithLifecycle()
+    val chat = chats.find { it.id == chatId }
+    val channelTitle = chat?.title ?: "KuoteX Official"
+
+    val members by viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList())
     val customizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val initialCustomization = customizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
+    val subscriberCount = maxOf(initialCustomization.subscriberCount, members.size).coerceAtLeast(1)
 
-    var selectedColorId by remember { mutableIntStateOf(initialCustomization.profileColorId) }
-    var selectedEmoji by remember { mutableStateOf(initialCustomization.emojiStatus) }
-    var selectedWallpaperId by remember { mutableStateOf(initialCustomization.chatWallpaperId) }
-    var wallpaperBlur by remember { mutableFloatStateOf(initialCustomization.wallpaperBlur) }
-    var wallpaperDim by remember { mutableFloatStateOf(initialCustomization.wallpaperDim) }
+    var isPreviewDark by remember { mutableStateOf(true) }
+    var selectedMessageColorId by remember(chatId) { mutableIntStateOf(initialCustomization.messageColorId) }
+    var selectedMessageEmoji by remember(chatId) { mutableStateOf(initialCustomization.messageEmojiPattern) }
+    var selectedProfileHeaderColorId by remember(chatId) { mutableStateOf(initialCustomization.profileHeaderColorId) }
+    var selectedProfileEmoji by remember(chatId) { mutableStateOf(initialCustomization.profileEmojiPattern) }
+    var selectedEmojiStatus by remember(chatId) { mutableStateOf(initialCustomization.emojiStatus) }
+    var selectedWallpaperId by remember(chatId) { mutableStateOf(initialCustomization.chatWallpaperId) }
+    var customWallpaperUri by remember(chatId) { mutableStateOf(initialCustomization.wallpaperCustomUri) }
+    var wallpaperBlur by remember(chatId) { mutableFloatStateOf(initialCustomization.wallpaperBlur) }
+    var wallpaperDim by remember(chatId) { mutableFloatStateOf(initialCustomization.wallpaperDim) }
 
-    val currentPalette = TelegramProfilePalettes.getPalette(selectedColorId)
-    val currentWallpaper = TelegramWallpapers.getPreset(selectedWallpaperId)
+    var activeEmojiPickerTarget by remember { mutableStateOf<ChannelEmojiTarget?>(null) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "appearance_anim")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_scale"
-    )
+    val galleryWallpaperLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val savedPath = ChannelWallpaperStorage.saveWallpaperFromUri(context, uri, chatId)
+                customWallpaperUri = savedPath
+                selectedWallpaperId = "custom_gallery"
+                Toast.makeText(context, "Фотография загружена в предпросмотр", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val activeMessageScheme = TelegramMessageColors.getScheme(selectedMessageColorId)
+    val activeProfileScheme = TelegramProfileHeaderSchemes.getOrNull(selectedProfileHeaderColorId)
+
+    val pageBg = Color(0xFF0E1117)
+    val cardBg = Color(0xFF171B24)
+    val cardBorder = Color.White.copy(alpha = 0.06f)
+    val captionColor = Color.White.copy(alpha = 0.56f)
+
+    activeEmojiPickerTarget?.let { target ->
+        val (dialogTitle, initialEmoji) = when (target) {
+            ChannelEmojiTarget.MESSAGE_PATTERN -> "Фоновый эмодзи сообщений" to selectedMessageEmoji
+            ChannelEmojiTarget.PROFILE_PATTERN -> "Фоновый эмодзи профиля" to selectedProfileEmoji
+            ChannelEmojiTarget.STATUS_EMOJI -> "Эмодзи-статус канала" to selectedEmojiStatus
+        }
+        TelegramChannelEmojiPickerDialog(
+            title = dialogTitle,
+            currentEmoji = initialEmoji,
+            onSelectEmoji = { chosen ->
+                when (target) {
+                    ChannelEmojiTarget.MESSAGE_PATTERN -> selectedMessageEmoji = chosen
+                    ChannelEmojiTarget.PROFILE_PATTERN -> selectedProfileEmoji = chosen
+                    ChannelEmojiTarget.STATUS_EMOJI -> selectedEmojiStatus = chosen
+                }
+            },
+            onDismiss = { activeEmojiPickerTarget = null }
+        )
+    }
 
     Scaffold(
+        containerColor = pageBg,
         topBar = {
             TopAppBar(
-                title = { Text("Оформление канала", fontWeight = FontWeight.Bold) },
+                title = {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("Оформление", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Назад")
+                    Surface(
+                        onClick = { navController.popBackStackSafe() },
+                        shape = CircleShape,
+                        color = Color(0xFF1E242E),
+                        modifier = Modifier.padding(start = 8.dp).size(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
                     }
                 },
                 actions = {
-                    TextButton(
-                        onClick = {
-                            ChannelCustomizationManager.updateProfileColor(chatId, selectedColorId, selectedEmoji)
-                            ChannelCustomizationManager.updateEmojiStatus(chatId, selectedEmoji, isAnimated = true)
-                            ChannelCustomizationManager.updateWallpaper(chatId, selectedWallpaperId, blur = wallpaperBlur, dim = wallpaperDim)
-                            Toast.makeText(context, "Оформление канала сохранено! ✨", Toast.LENGTH_SHORT).show()
-                            navController.popBackStack()
-                        }
+                    Surface(
+                        onClick = { isPreviewDark = !isPreviewDark },
+                        shape = CircleShape,
+                        color = Color(0xFF1E242E),
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(40.dp)
+                            .testTag("appearance_theme_toggle")
                     ) {
-                        Text("Применить", fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isPreviewDark) Icons.Outlined.WbSunny else Icons.Outlined.DarkMode,
+                                contentDescription = if (isPreviewDark) "Светлый предпросмотр" else "Тёмный предпросмотр",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF0F141C)
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = pageBg)
             )
+        },
+        bottomBar = {
+            Surface(
+                color = pageBg.copy(alpha = 0.96f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            ChannelCustomizationManager.updateChannelAppearance(
+                                chatId = chatId,
+                                messageColorId = selectedMessageColorId,
+                                messageEmojiPattern = selectedMessageEmoji,
+                                profileHeaderColorId = selectedProfileHeaderColorId,
+                                profileEmojiPattern = selectedProfileEmoji,
+                                emojiStatus = selectedEmojiStatus,
+                                wallpaperId = selectedWallpaperId,
+                                customWallpaperUri = customWallpaperUri,
+                                wallpaperBlur = wallpaperBlur,
+                                wallpaperDim = wallpaperDim
+                            )
+                            Toast.makeText(context, "Оформление канала применено ✨", Toast.LENGTH_SHORT).show()
+                            navController.popBackStackSafe()
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8C62E6)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .testTag("apply_channel_appearance_button")
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Применить изменения",
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 16.sp
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.Lock, contentDescription = null, tint = Color.White.copy(alpha = 0.78f), modifier = Modifier.size(11.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = "Рекомендуется уровень 3+",
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF0F141C), Color(0xFF141A24), Color(0xFF0C0F14))
-                    )
-                )
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp)
         ) {
+            // --- SECTION 1: LIVE MESSAGE PREVIEW + SWATCHES + BACKGROUND EMOJI ---
             item {
-                Spacer(Modifier.height(8.dp))
-                // --- LIVE PREVIEW CARD ---
-                Text(
-                    text = "Предпросмотр оформления",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.7f)
-                )
-                Spacer(Modifier.height(6.dp))
-
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF18202E),
-                    border = BorderStroke(1.5.dp, currentPalette.brush),
-                    shadowElevation = 8.dp
+                    color = cardBg,
+                    border = BorderStroke(1.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        // Wallpaper preview background
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .background(
-                                    Brush.linearGradient(currentWallpaper.previewGradient)
-                                )
-                                .background(Color.Black.copy(alpha = wallpaperDim))
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        MessageAppearancePreviewCard(
+                            channelTitle = channelTitle,
+                            avatarUrl = initialCustomization.avatarUrl,
+                            messageScheme = activeMessageScheme,
+                            messageEmojiPattern = selectedMessageEmoji,
+                            emojiStatus = selectedEmojiStatus,
+                            wallpaperId = selectedWallpaperId,
+                            customWallpaperUri = customWallpaperUri,
+                            wallpaperBlur = wallpaperBlur,
+                            wallpaperDim = wallpaperDim,
+                            isDarkPreview = isPreviewDark
                         )
+
+                        Spacer(Modifier.height(10.dp))
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(TelegramMessageColors.schemes, key = { it.id }) { scheme ->
+                                MultiToneColorSwatch(
+                                    scheme = scheme,
+                                    selected = selectedMessageColorId == scheme.id,
+                                    isDarkSurface = true,
+                                    onClick = { selectedMessageColorId = scheme.id }
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                        AppearanceSettingRow(
+                            title = "Фоновый эмодзи",
+                            boostLevel = 4,
+                            valueText = selectedMessageEmoji ?: "Нет",
+                            valueColor = Color(0xFF9F6BFF),
+                            testTag = "row_message_bg_emoji",
+                            onClick = { activeEmojiPickerTarget = ChannelEmojiTarget.MESSAGE_PATTERN }
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Вы можете выбрать цвет для названия канала, а также опубликованных каналом ссылок и цитат его публикаций в ответах.",
+                    color = captionColor,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                )
+            }
+
+            // --- SECTION 2: WALLPAPER CAROUSEL + GALLERY PICKER + BLUR/DIM SLIDERS ---
+            item {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = cardBg,
+                    border = BorderStroke(1.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            item(key = "gallery_picker") {
+                                GalleryWallpaperThumbnailCard(
+                                    customUri = customWallpaperUri,
+                                    isSelected = selectedWallpaperId == "custom_gallery" && !customWallpaperUri.isNullOrBlank(),
+                                    isDarkPreview = isPreviewDark,
+                                    onClick = {
+                                        galleryWallpaperLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    }
+                                )
+                            }
+                            items(TelegramWallpapers.presets, key = { it.id }) { preset ->
+                                PresetWallpaperThumbnailCard(
+                                    preset = preset,
+                                    isSelected = selectedWallpaperId == preset.id,
+                                    isDarkPreview = isPreviewDark,
+                                    onClick = { selectedWallpaperId = preset.id }
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        val wpLabel = when (selectedWallpaperId) {
+                            "custom_gallery" -> "Фото из галереи"
+                            else -> TelegramWallpapers.getPreset(selectedWallpaperId).name
+                        }
+                        AppearanceSettingRow(
+                            title = "Обои в канале",
+                            boostLevel = 10,
+                            valueText = wpLabel,
+                            valueColor = Color(0xFF9F6BFF),
+                            testTag = "row_channel_wallpaper",
+                            onClick = {
+                                galleryWallpaperLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }
+                        )
+
+                        AnimatedVisibility(visible = selectedWallpaperId != "none") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                                Spacer(Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Затемнение", color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp)
+                                    Text("${(wallpaperDim * 100).toInt()}%", color = Color(0xFF9F6BFF), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                Slider(
+                                    value = wallpaperDim,
+                                    onValueChange = { wallpaperDim = it },
+                                    valueRange = 0f..0.8f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color(0xFF9F6BFF),
+                                        activeTrackColor = Color(0xFF8C62E6),
+                                        inactiveTrackColor = Color.White.copy(alpha = 0.14f)
+                                    ),
+                                    modifier = Modifier.testTag("wallpaper_dim_slider")
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Размытие", color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp)
+                                    Text("${wallpaperBlur.toInt()} dp", color = Color(0xFF9F6BFF), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                Slider(
+                                    value = wallpaperBlur,
+                                    onValueChange = { wallpaperBlur = it },
+                                    valueRange = 0f..24f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color(0xFF9F6BFF),
+                                        activeTrackColor = Color(0xFF8C62E6),
+                                        inactiveTrackColor = Color.White.copy(alpha = 0.14f)
+                                    ),
+                                    modifier = Modifier.testTag("wallpaper_blur_slider")
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Вы можете установить в канале обои, которые будут видны всем, кто его читает.",
+                    color = captionColor,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                )
+            }
+
+            // --- SECTION 3: PROFILE HEADER PREVIEW + 16 SWATCHES + RESET ---
+            item {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = cardBg,
+                    border = BorderStroke(1.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ProfileHeaderPreviewCard(
+                            channelTitle = channelTitle,
+                            avatarUrl = initialCustomization.avatarUrl,
+                            subscriberCount = subscriberCount,
+                            headerScheme = activeProfileScheme,
+                            profileEmojiPattern = selectedProfileEmoji,
+                            emojiStatus = selectedEmojiStatus,
+                            isDarkPreview = isPreviewDark
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        // 2-row 8-column palette grid matching Telegram
+                        val row1 = remember { TelegramProfileHeaderSchemes.schemes.take(8) }
+                        val row2 = remember { TelegramProfileHeaderSchemes.schemes.drop(8).take(8) }
 
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // Channel Header in Preview
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
+                                row1.forEach { scheme ->
+                                    ProfileHeaderColorSwatch(
+                                        scheme = scheme,
+                                        selected = selectedProfileHeaderColorId == scheme.id,
+                                        onClick = { selectedProfileHeaderColorId = scheme.id }
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                row2.forEach { scheme ->
+                                    ProfileHeaderColorSwatch(
+                                        scheme = scheme,
+                                        selected = selectedProfileHeaderColorId == scheme.id,
+                                        onClick = { selectedProfileHeaderColorId = scheme.id }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                        AppearanceSettingRow(
+                            title = "Фоновый эмодзи",
+                            boostLevel = 7,
+                            valueText = selectedProfileEmoji ?: "Нет",
+                            valueColor = Color(0xFF9F6BFF),
+                            testTag = "row_profile_bg_emoji",
+                            onClick = { activeEmojiPickerTarget = ChannelEmojiTarget.PROFILE_PATTERN }
+                        )
+
+                        AnimatedVisibility(
+                            visible = selectedProfileHeaderColorId != null || selectedProfileEmoji != null
+                        ) {
+                            Column {
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                                 Box(
                                     modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(currentPalette.brush),
-                                    contentAlignment = Alignment.Center
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedProfileHeaderColorId = null
+                                            selectedProfileEmoji = null
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                                        .testTag("reset_profile_color_button")
                                 ) {
-                                    Icon(
-                                        Icons.Filled.Campaign,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-
-                                Spacer(Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "KuoteX Official",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = currentPalette.primaryColor
-                                        )
-                                        if (selectedEmoji != null) {
-                                            Spacer(Modifier.width(6.dp))
-                                            AnimatedEmojiStatusBadge(
-                                                emoji = selectedEmoji,
-                                                glowColor = currentPalette.primaryColor,
-                                                size = 22.dp,
-                                                fontSize = 13.sp
-                                            )
-                                        }
-                                    }
                                     Text(
-                                        text = "12 450 подписчиков",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.6f)
-                                    )
-                                }
-                            }
-
-                            Spacer(Modifier.height(14.dp))
-
-                            // Sample Channel Post Bubble with Quote Border
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFF1E2838).copy(alpha = 0.95f),
-                                border = BorderStroke(1.dp, currentPalette.quoteBorder.copy(alpha = 0.5f))
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    // Quote Block
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = currentPalette.quoteBackground,
-                                        border = BorderStroke(0.5.dp, currentPalette.quoteBorder.copy(alpha = 0.6f))
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(3.dp)
-                                                    .height(30.dp)
-                                                    .background(currentPalette.primaryColor, RoundedCornerShape(2.dp))
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Column {
-                                                Text(
-                                                    text = "KuoteX",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = currentPalette.primaryColor
-                                                )
-                                                Text(
-                                                    text = "Новые возможности каналов и групп доступны всем пользователям!",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = Color.White.copy(alpha = 0.85f),
-                                                    fontSize = 11.sp,
-                                                    maxLines = 1
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    Spacer(Modifier.height(8.dp))
-
-                                    Text(
-                                        text = "⚡ Добавлены кастомные анимированные эмодзи в шапку, Telegram-бусты и темы!",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.White
-                                    )
-
-                                    Spacer(Modifier.height(4.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.End,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "14:20 • KuoteX Admin",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White.copy(alpha = 0.5f),
-                                            fontSize = 10.sp
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- SECTION 1: PROFILE & QUOTE COLORS ---
-            item {
-                Text(
-                    text = "1. Цвет названия и цитат",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Выберите один из градиентов для акцента профиля, ссылок и репостов",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-            }
-
-            item {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(TelegramProfilePalettes.palettes) { palette ->
-                        val isSelected = selectedColorId == palette.id
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(palette.brush)
-                                .border(
-                                    width = if (isSelected) 3.dp else 1.dp,
-                                    color = if (isSelected) Color.White else Color.Transparent,
-                                    shape = CircleShape
-                                )
-                                .clickable { selectedColorId = palette.id },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Filled.Check,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- SECTION 2: ANIMATED CUSTOM EMOJI IN HEADER ---
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "2. Анимированный эмодзи в шапку",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Отображается рядом с названием канала",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.6f)
-                        )
-                    }
-
-                    if (selectedEmoji != null) {
-                        TextButton(onClick = { selectedEmoji = null }) {
-                            Text("Убрать", color = Color(0xFFFF5252), fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-
-            item {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(ChannelEmojiCatalog.emojis) { emojiItem ->
-                        val isSelected = selectedEmoji == emojiItem.emoji
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isSelected) currentPalette.quoteBackground else Color(0xFF161C26),
-                            border = BorderStroke(
-                                1.5.dp,
-                                if (isSelected) currentPalette.primaryColor else Color.White.copy(alpha = 0.1f)
-                            ),
-                            modifier = Modifier.clickable {
-                                selectedEmoji = emojiItem.emoji
-                            }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = emojiItem.emoji,
-                                    fontSize = 24.sp,
-                                    modifier = Modifier.graphicsLayer {
-                                        if (isSelected) {
-                                            scaleX = pulseScale
-                                            scaleY = pulseScale
-                                        }
-                                    }
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = emojiItem.name,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isSelected) currentPalette.primaryColor else Color.White.copy(alpha = 0.7f),
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- SECTION 3: WALLPAPER CUSTOMIZATION ---
-            item {
-                Text(
-                    text = "3. Обои канала / группы",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Фон диалога для всех подписчиков и гостей канала",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-            }
-
-            item {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(TelegramWallpapers.presets) { wp ->
-                        val isSelected = selectedWallpaperId == wp.id
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(
-                                2.dp,
-                                if (isSelected) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.15f)
-                            ),
-                            modifier = Modifier
-                                .size(width = 80.dp, height = 110.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Brush.linearGradient(wp.previewGradient))
-                                .clickable { selectedWallpaperId = wp.id }
-                        ) {
-                            Box(
-                                modifier = Modifier.fillMaxSize().padding(6.dp),
-                                contentAlignment = Alignment.BottomCenter
-                            ) {
-                                if (isSelected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF00E5FF)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                                    }
-                                } else {
-                                    Text(
-                                        text = wp.name,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        maxLines = 1
+                                        text = "Сбросить цвет профиля",
+                                        color = Color(0xFF9F6BFF),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
                         }
                     }
                 }
+
+                Text(
+                    text = "Вы можете выбрать цвет и фоновый эмодзи для профиля канала.",
+                    color = captionColor,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                )
             }
 
-            // Wallpaper Dimming Slider
+            // --- SECTION 4: CHANNEL EMOJI STATUS ---
             item {
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color(0xFF141923),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                    shape = RoundedCornerShape(20.dp),
+                    color = cardBg,
+                    border = BorderStroke(1.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Затемнение обоев", style = MaterialTheme.typography.bodyMedium, color = Color.White)
-                            Text("${(wallpaperDim * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF00E5FF))
-                        }
-                        Slider(
-                            value = wallpaperDim,
-                            onValueChange = { wallpaperDim = it },
-                            valueRange = 0f..0.8f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF00E5FF),
-                                activeTrackColor = Color(0xFF00E5FF)
-                            )
-                        )
-                    }
+                    AppearanceSettingRow(
+                        title = "Эмодзи-статус канала",
+                        boostLevel = 8,
+                        valueText = selectedEmojiStatus ?: "Нет",
+                        valueColor = Color(0xFF9F6BFF),
+                        testTag = "row_channel_emoji_status",
+                        onClick = { activeEmojiPickerTarget = ChannelEmojiTarget.STATUS_EMOJI }
+                    )
                 }
-            }
 
-            // Bottom Save Button
-            item {
-                Button(
-                    onClick = {
-                        ChannelCustomizationManager.updateProfileColor(chatId, selectedColorId, selectedEmoji)
-                        ChannelCustomizationManager.updateEmojiStatus(chatId, selectedEmoji, isAnimated = true)
-                        ChannelCustomizationManager.updateWallpaper(chatId, selectedWallpaperId, blur = wallpaperBlur, dim = wallpaperDim)
-                        Toast.makeText(context, "Оформление успешно применено! ✨", Toast.LENGTH_SHORT).show()
-                        navController.popBackStack()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
-                ) {
-                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Color.Black)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Сохранить и применить", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
-                }
-                Spacer(Modifier.height(24.dp))
+                Text(
+                    text = "Вы можете выбрать статус, который будет отображаться рядом с названием канала.",
+                    color = captionColor,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun AppearanceSettingRow(
+    title: String,
+    boostLevel: Int,
+    valueText: String,
+    valueColor: Color,
+    testTag: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(Modifier.width(8.dp))
+        BoostLevelPillBadge(level = boostLevel)
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = valueText,
+            color = valueColor,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
     }
 }
