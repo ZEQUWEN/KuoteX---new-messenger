@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -60,6 +62,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -470,32 +474,46 @@ fun ChannelAppearanceScreen(
                         val row1 = remember { TelegramProfileHeaderSchemes.schemes.take(8) }
                         val row2 = remember { TelegramProfileHeaderSchemes.schemes.drop(8).take(8) }
 
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp)
                         ) {
-                            Row(
+                            val swatchGap = 4.dp
+                            val outerSize = ((maxWidth - swatchGap * 7) / 8f).coerceAtMost(42.dp)
+                            val innerSize = (outerSize - 6.dp).coerceAtLeast(22.dp)
+
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                row1.forEach { scheme ->
-                                    ProfileHeaderColorSwatch(
-                                        scheme = scheme,
-                                        selected = selectedProfileHeaderColorId == scheme.id,
-                                        onClick = { selectedProfileHeaderColorId = scheme.id }
-                                    )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    row1.forEach { scheme ->
+                                        ProfileHeaderColorSwatch(
+                                            scheme = scheme,
+                                            selected = selectedProfileHeaderColorId == scheme.id,
+                                            size = innerSize,
+                                            onClick = { selectedProfileHeaderColorId = scheme.id }
+                                        )
+                                    }
                                 }
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                row2.forEach { scheme ->
-                                    ProfileHeaderColorSwatch(
-                                        scheme = scheme,
-                                        selected = selectedProfileHeaderColorId == scheme.id,
-                                        onClick = { selectedProfileHeaderColorId = scheme.id }
-                                    )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    row2.forEach { scheme ->
+                                        ProfileHeaderColorSwatch(
+                                            scheme = scheme,
+                                            selected = selectedProfileHeaderColorId == scheme.id,
+                                            size = innerSize,
+                                            onClick = { selectedProfileHeaderColorId = scheme.id }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -524,14 +542,17 @@ fun ChannelAppearanceScreen(
                                             selectedProfileHeaderColorId = null
                                             selectedProfileEmoji = null
                                         }
-                                        .padding(horizontal = 16.dp, vertical = 14.dp)
-                                        .testTag("reset_profile_color_button")
+                                    .padding(horizontal = 14.dp, vertical = 14.dp)
+                                    .testTag("reset_profile_color_button")
                                 ) {
                                     Text(
                                         text = "Сбросить цвет профиля",
                                         color = Color(0xFF9F6BFF),
                                         fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -591,25 +612,39 @@ private fun AppearanceSettingRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 14.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = title,
-            color = Color.White,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium
-        )
-        Spacer(Modifier.width(8.dp))
-        BoostLevelPillBadge(level = boostLevel)
-        Spacer(Modifier.weight(1f))
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(Modifier.width(6.dp))
+            BoostLevelPillBadge(level = boostLevel)
+        }
         Text(
             text = valueText,
             color = valueColor,
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium,
-            maxLines = 1
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.widthIn(max = 120.dp)
         )
     }
 }

@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -227,7 +228,7 @@ fun StickersAndEmojiScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { showTrendingModal = true }
-                                .padding(horizontal = 16.dp, vertical = 15.dp)
+                                .padding(horizontal = 14.dp, vertical = 15.dp)
                                 .testTag("row_trending_stickers"),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -237,26 +238,36 @@ fun StickersAndEmojiScreen(
                                 tint = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(22.dp)
                             )
-                            Spacer(Modifier.width(16.dp))
+                            Spacer(Modifier.width(12.dp))
                             Text(
                                 text = "Популярные стикеры",
                                 color = Color.White,
                                 fontSize = 16.sp,
-                                modifier = Modifier.weight(1f)
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             )
                             Text(
                                 text = MediaExpressionManager.totalTrendingStickersCount().toString(),
                                 color = AccentPurple,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.widthIn(max = 140.dp)
                             )
                         }
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(start = 54.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(start = 48.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onOpenEmojiPacks() }
-                                .padding(horizontal = 16.dp, vertical = 15.dp)
+                                .padding(horizontal = 14.dp, vertical = 15.dp)
                                 .testTag("row_emoji_packs"),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -266,20 +277,25 @@ fun StickersAndEmojiScreen(
                                 tint = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(22.dp)
                             )
-                            Spacer(Modifier.width(16.dp))
+                            Spacer(Modifier.width(12.dp))
                             Text(
                                 text = "Эмодзи",
                                 color = Color.White,
                                 fontSize = 16.sp,
-                                modifier = Modifier.weight(1f)
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             )
                         }
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(start = 54.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(start = 48.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onOpenQuickReaction() }
-                                .padding(horizontal = 16.dp, vertical = 15.dp)
+                                .padding(horizontal = 14.dp, vertical = 15.dp)
                                 .testTag("row_quick_reaction"),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -289,16 +305,23 @@ fun StickersAndEmojiScreen(
                                 tint = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(22.dp)
                             )
-                            Spacer(Modifier.width(16.dp))
+                            Spacer(Modifier.width(12.dp))
                             Text(
                                 text = "Быстрая реакция",
                                 color = Color.White,
                                 fontSize = 16.sp,
-                                modifier = Modifier.weight(1f)
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             )
                             Text(
                                 text = quickReaction,
-                                fontSize = 20.sp
+                                fontSize = 20.sp,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -335,7 +358,7 @@ fun StickersAndEmojiScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { showHintModeMenu = true }
-                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                                    .padding(horizontal = 14.dp, vertical = 14.dp)
                                     .testTag("row_emoji_hint_mode"),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -343,13 +366,23 @@ fun StickersAndEmojiScreen(
                                     text = "Подсказка по эмодзи",
                                     color = Color.White,
                                     fontSize = 16.sp,
-                                    modifier = Modifier.weight(1f)
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
                                 )
                                 Text(
                                     text = emojiHintMode.label,
                                     color = AccentPurple,
                                     fontSize = 15.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.widthIn(max = 140.dp)
                                 )
                             }
 
@@ -375,20 +408,25 @@ fun StickersAndEmojiScreen(
                             }
                         }
 
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(horizontal = 16.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(horizontal = 14.dp))
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { MediaExpressionManager.setLargeEmojiEnabled(!largeEmojiEnabled) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = "Крупные эмодзи",
                                 color = Color.White,
                                 fontSize = 16.sp,
-                                modifier = Modifier.weight(1f)
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             )
                             Switch(
                                 checked = largeEmojiEnabled,
@@ -400,20 +438,25 @@ fun StickersAndEmojiScreen(
                             )
                         }
 
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(horizontal = 16.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(horizontal = 14.dp))
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { MediaExpressionManager.setRecentFirstEnabled(!recentFirstEnabled) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = "Сначала недавние",
                                 color = Color.White,
                                 fontSize = 16.sp,
-                                modifier = Modifier.weight(1f)
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             )
                             Switch(
                                 checked = recentFirstEnabled,

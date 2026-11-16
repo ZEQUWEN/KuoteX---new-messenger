@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,6 +90,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -574,7 +577,10 @@ fun ChannelGroupAdminScreen(
                                 text = "Выбрать фотографию",
                                 color = TelegramAdminPurple,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         }
@@ -692,7 +698,8 @@ fun ChannelGroupAdminScreen(
                             trailingContent = {
                                 Surface(
                                     shape = RoundedCornerShape(50),
-                                    color = msgScheme.accentColor.copy(alpha = 0.22f)
+                                    color = msgScheme.accentColor.copy(alpha = 0.22f),
+                                    modifier = Modifier.widthIn(max = 140.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -703,11 +710,19 @@ fun ChannelGroupAdminScreen(
                                             color = msgScheme.accentColor,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 13.sp,
-                                            maxLines = 1
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
                                         )
                                         if (!selectedStatusEmoji.isNullOrBlank()) {
                                             Spacer(Modifier.width(5.dp))
-                                            Text(text = selectedStatusEmoji!!, fontSize = 13.sp)
+                                            Text(
+                                                text = selectedStatusEmoji!!,
+                                                fontSize = 13.sp,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
                                         }
                                     }
                                 }
@@ -865,16 +880,20 @@ fun ChannelGroupAdminScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 15.dp),
+                            .padding(horizontal = 14.dp, vertical = 15.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Filled.Groups, contentDescription = null, tint = TelegramAdminPurple, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.width(16.dp))
+                        Spacer(Modifier.width(12.dp))
                         Text(
                             text = "Добавить канал в сообщество",
                             color = TelegramAdminPurple,
                             fontWeight = FontWeight.Medium,
-                            fontSize = 15.sp
+                            fontSize = 15.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
@@ -902,14 +921,17 @@ fun ChannelGroupAdminScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { showLeaveConfirmDialog = true }
-                                    .padding(horizontal = 16.dp, vertical = 15.dp),
+                                    .padding(horizontal = 14.dp, vertical = 15.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = "Покинуть канал",
                                     color = Color(0xFFFF5252),
                                     fontWeight = FontWeight.Medium,
-                                    fontSize = 16.sp
+                                    fontSize = 16.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             HorizontalDivider(color = TelegramAdminDividerColor)
@@ -919,7 +941,7 @@ fun ChannelGroupAdminScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { showDeleteConfirmDialog = true }
-                                    .padding(horizontal = 16.dp, vertical = 15.dp)
+                                    .padding(horizontal = 14.dp, vertical = 15.dp)
                                     .testTag("delete_channel_button"),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -927,7 +949,10 @@ fun ChannelGroupAdminScreen(
                                     text = "Удалить канал",
                                     color = Color(0xFFFF5252),
                                     fontWeight = FontWeight.Medium,
-                                    fontSize = 16.sp
+                                    fontSize = 16.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -984,16 +1009,21 @@ private fun AdminMenuRow(
             .fillMaxWidth()
             .then(if (testTag.isNotBlank()) Modifier.testTag(testTag) else Modifier)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White,
-            modifier = Modifier.weight(1f)
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
         )
 
         if (badgeText != null) {
@@ -1007,14 +1037,23 @@ private fun AdminMenuRow(
                     color = Color.White,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
         }
 
         if (trailingContent != null) {
-            trailingContent()
-            Spacer(Modifier.width(6.dp))
+            Box(
+                modifier = Modifier.widthIn(max = 140.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                trailingContent()
+            }
+            if (value.isNotEmpty()) {
+                Spacer(Modifier.width(6.dp))
+            }
         }
 
         if (value.isNotEmpty()) {
@@ -1022,7 +1061,12 @@ private fun AdminMenuRow(
                 text = value,
                 color = valueColor,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.widthIn(max = if (trailingContent != null) 108.dp else 140.dp)
             )
         }
     }
@@ -1040,16 +1084,21 @@ private fun AdminSwitchMenuRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White,
-            modifier = Modifier.weight(1f)
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
         )
         Switch(
             checked = checked,

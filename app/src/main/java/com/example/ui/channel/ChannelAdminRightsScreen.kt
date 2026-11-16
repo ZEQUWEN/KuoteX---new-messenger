@@ -619,7 +619,7 @@ private fun AdminRightToggleRow(
             .fillMaxWidth()
             .heightIn(min = 52.dp)
             .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -627,10 +627,11 @@ private fun AdminRightToggleRow(
             color = Color.White,
             fontSize = 16.sp,
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
-                .padding(end = 12.dp)
+                .padding(end = 8.dp)
         )
         TelegramAdminPurpleSwitch(
             checked = checked,
@@ -657,14 +658,14 @@ private fun AdminExpandableGroupHeader(
             .fillMaxWidth()
             .heightIn(min = 52.dp)
             .clickable(onClick = onToggleExpand)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
             .testTag(headerTestTag),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
             modifier = Modifier
                 .weight(1f)
-                .padding(end = 12.dp),
+                .padding(end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -672,6 +673,7 @@ private fun AdminExpandableGroupHeader(
                 color = Color.White,
                 fontSize = 16.sp,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
             )
@@ -680,7 +682,9 @@ private fun AdminExpandableGroupHeader(
                 text = "$selectedCount/$totalCount",
                 color = Color.White,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false
             )
             Spacer(Modifier.width(2.dp))
             Icon(
@@ -710,7 +714,7 @@ private fun AdminSubCheckRow(
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .clickable(onClick = onClick)
-            .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
+            .padding(start = 22.dp, end = 14.dp, top = 8.dp, bottom = 8.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -737,13 +741,17 @@ private fun AdminSubCheckRow(
                 )
             }
         }
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             text = title,
             color = Color.White,
             fontSize = 15.sp,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
         )
     }
 }

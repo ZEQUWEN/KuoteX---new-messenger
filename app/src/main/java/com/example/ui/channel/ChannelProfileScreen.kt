@@ -1061,18 +1061,28 @@ fun ChannelProfileScreen(
                                 },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
+                            ) {
                                 Text(
                                     text = customization.inviteLink,
                                     color = Color(0xFF2AABEE),
                                     fontWeight = FontWeight.Medium,
-                                    fontSize = 15.sp
+                                    fontSize = 15.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     text = "Ссылка-приглашение",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.45f)
+                                    color = Color.White.copy(alpha = 0.45f),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
@@ -1113,17 +1123,27 @@ fun ChannelProfileScreen(
                                     }
                                 )
                                 Spacer(Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
+                                ) {
                                     Text(
                                         text = linkedGroup.title,
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = 15.sp
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "Привязанная группа обсуждения",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.55f)
+                                        color = Color.White.copy(alpha = 0.55f),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 Icon(
@@ -1575,7 +1595,7 @@ private fun TelegramProfileListRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -1584,18 +1604,28 @@ private fun TelegramProfileListRow(
             tint = Color(0xFF2AABEE),
             modifier = Modifier.size(24.dp)
         )
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White,
-            modifier = Modifier.weight(1f)
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
         )
         if (badgeValue.isNotEmpty()) {
             Text(
                 text = badgeValue,
                 color = Color.White.copy(alpha = 0.5f),
-                fontSize = 14.sp
+                fontSize = 14.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.widthIn(max = 140.dp)
             )
             Spacer(Modifier.width(6.dp))
         }

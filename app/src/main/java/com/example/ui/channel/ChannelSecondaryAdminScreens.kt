@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -214,12 +215,21 @@ fun ChannelBlacklistScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Filled.PersonAddDisabled, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Text("Заблокировать пользователя", color = Color(0xFFFF5252), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = "Заблокировать пользователя",
+                            color = Color(0xFFFF5252),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -434,9 +444,27 @@ private fun StatMetricBox(title: String, value: String, delta: String, accentCol
 @Composable
 private fun SourceShareRow(label: String, fraction: Float, percentText: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp)
-            Text(percentText, color = TelegramAdminPurple, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 13.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
+            )
+            Text(
+                text = percentText,
+                color = TelegramAdminPurple,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false,
+                textAlign = TextAlign.End
+            )
         }
         LinearProgressIndicator(
             progress = { fraction },
@@ -528,11 +556,25 @@ fun ChannelRecentActionsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(action.actionTitle, color = TelegramAdminPurple, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(
+                                    text = action.actionTitle,
+                                    color = TelegramAdminPurple,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
+                                )
                                 Text(
                                     SimpleDateFormat("HH:mm, dd.MM", Locale("ru")).format(Date(action.timestamp)),
                                     color = TelegramAdminCaptionColor,
-                                    fontSize = 11.sp
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    textAlign = TextAlign.End
                                 )
                             }
                             Text(action.details, color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
@@ -618,11 +660,22 @@ fun ChannelDirectMessagesScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Включить личные сообщения", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                        Text(
+                            text = "Включить личные сообщения",
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
+                        )
                         Switch(
                             checked = dmEnabled,
                             onCheckedChange = { dmEnabled = it },

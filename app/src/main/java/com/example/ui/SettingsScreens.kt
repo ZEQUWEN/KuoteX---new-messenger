@@ -55,6 +55,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -244,7 +245,7 @@ fun SettingsListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -253,11 +254,28 @@ fun SettingsListItem(
         ) {
             icon()
         }
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.width(12.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
             if (subtitle != null) {
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -269,12 +287,31 @@ fun SettingsSimpleItem(title: String, value: String, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-        Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.widthIn(max = 140.dp)
+        )
     }
 }
 
@@ -476,7 +513,7 @@ fun SettingsMenuScreen(viewModel: AppViewModel, navController: NavController) {
                                         viewModel.switchAccount(account.id)
                                     }
                                 }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val accountImageUrl = account.profilePicUrl.ifEmpty { "https://picsum.photos/seed/${account.id}/100" }
@@ -486,11 +523,16 @@ fun SettingsMenuScreen(viewModel: AppViewModel, navController: NavController) {
                                 modifier = Modifier.size(40.dp).clip(CircleShape),
                                 contentScale = ContentScale.Crop
                             )
-                            Spacer(modifier = Modifier.width(16.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = account.displayName,
                                 style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp),
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
                             )
                             if (isCurrent) {
@@ -505,7 +547,7 @@ fun SettingsMenuScreen(viewModel: AppViewModel, navController: NavController) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { viewModel.addAccountAction() }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -514,11 +556,14 @@ fun SettingsMenuScreen(viewModel: AppViewModel, navController: NavController) {
                         ) {
                             Icon(Icons.Filled.Add, contentDescription = "Add Account", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             text = "Добавить аккаунт",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -948,7 +993,7 @@ fun SettingsSecurityScreen(viewModel: AppViewModel, navController: NavController
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { navController.navigateSafe("settings/passcode") }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -957,10 +1002,28 @@ fun SettingsSecurityScreen(viewModel: AppViewModel, navController: NavController
                         ) {
                             Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         }
-                        Spacer(Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Passcode Lock", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Text(if (isPasscodeEnabled) "On" else "Off", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(12.dp))
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
+                        ) {
+                            Text(
+                                text = "Passcode Lock",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (isPasscodeEnabled) "On" else "Off",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                         Switch(checked = isPasscodeEnabled, onCheckedChange = { navController.navigateSafe("settings/passcode") })
                     }
@@ -1101,40 +1164,40 @@ fun SettingsGeneralScreen(viewModel: AppViewModel, navController: NavController)
                 ) {
                     Column(modifier = Modifier.padding(vertical = 4.dp)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Всплывающие уведомления (FCM)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("Всплывающие уведомления (FCM)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                                 Text("Получать Push-сообщения в фоне и на заблокированном экране", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = notificationsEnabled, onCheckedChange = { notificationsEnabled = it })
                         }
 
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Упоминания и ответы (@username)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("Упоминания и ответы (@username)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                                 Text("Приоритетные уведомления при упоминании в групповых чатах", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = mentionsHighPriority, onCheckedChange = { mentionsHighPriority = it })
                         }
 
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Всплывающая FCP система (В приложении)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("Всплывающая FCP система (В приложении)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                                 Text("Интерактивный плавающий баннер с подсветкой @username, быстрым ответом и отметкой о прочтении", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = bubblesEnabled, onCheckedChange = { bubblesEnabled = it })
@@ -1436,11 +1499,21 @@ fun SettingsThemesScreen(viewModel: AppViewModel, navController: androidx.naviga
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { viewModel.setAutoThemeEnabled(!isAutoThemeEnabled) }
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Автоматическая тема", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        text = "Автоматическая тема",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                    )
                     Switch(
                         checked = isAutoThemeEnabled,
                         onCheckedChange = { viewModel.setAutoThemeEnabled(it) },
@@ -1448,16 +1521,26 @@ fun SettingsThemesScreen(viewModel: AppViewModel, navController: androidx.naviga
                     )
                 }
                 if (!isAutoThemeEnabled) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha=0.2f), modifier = Modifier.padding(horizontal = 16.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha=0.2f), modifier = Modifier.padding(horizontal = 14.dp))
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { viewModel.setDarkThemeEnabled(!isDarkThemeEnabled) }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Тёмная тема", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            text = "Тёмная тема",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
+                        )
                         Switch(
                             checked = isDarkThemeEnabled,
                             onCheckedChange = { viewModel.setDarkThemeEnabled(it) },
@@ -1466,16 +1549,26 @@ fun SettingsThemesScreen(viewModel: AppViewModel, navController: androidx.naviga
                     }
                 }
                 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha=0.2f), modifier = Modifier.padding(horizontal = 16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha=0.2f), modifier = Modifier.padding(horizontal = 14.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { viewModel.setQrSnowflakesEnabled(!isQrSnowflakesEnabled) }
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("QR Code Snowflakes", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        text = "QR Code Snowflakes",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                    )
                     Switch(
                         checked = isQrSnowflakesEnabled,
                         onCheckedChange = { viewModel.setQrSnowflakesEnabled(it) },
@@ -1497,24 +1590,33 @@ fun SettingsAccountsScreen(viewModel: AppViewModel, navController: androidx.navi
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             accounts.forEach { account ->
                 Row(
-                    modifier = Modifier.fillMaxWidth().clickable { viewModel.switchAccount(account.id) }.padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { viewModel.switchAccount(account.id) }.padding(horizontal = 14.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
                         Text(account.username.take(1).uppercase(), color = MaterialTheme.colorScheme.onPrimary)
                     }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(account.username, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = account.username,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                    )
                     if (account.isActive) {
                         Icon(Icons.Filled.Check, contentDescription = "Active", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            Row(modifier = Modifier.fillMaxWidth().clickable { viewModel.addAccountAction() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().clickable { viewModel.addAccountAction() }.padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Add, contentDescription = "Add Account", tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(16.dp))
-                Text("Add Account", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Add Account", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -1527,14 +1629,23 @@ fun PasscodeLockScreen(viewModel: AppViewModel, navController: androidx.navigati
     var isEnabled by remember { mutableStateOf(activeAccount?.encryptedPasscode != null) }
     Scaffold(topBar = { TopAppBar(title = { Text("Passcode Lock") }, navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { padding -> 
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxWidth().clickable { isEnabled = !isEnabled }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Passcode Lock", style = MaterialTheme.typography.titleMedium)
+            Row(modifier = Modifier.fillMaxWidth().clickable { isEnabled = !isEnabled }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    text = "Passcode Lock",
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                )
                 Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
             }
             if (isEnabled) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Row(modifier = Modifier.fillMaxWidth().clickable { }.padding(horizontal = 16.dp, vertical = 16.dp)) {
-                    Text("Change Passcode", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                Row(modifier = Modifier.fillMaxWidth().clickable { }.padding(horizontal = 14.dp, vertical = 16.dp)) {
+                    Text("Change Passcode", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                 }
             }
             Text("When a passcode is set, a lock icon appears on the chats page. Tap it to lock your app.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1772,19 +1883,24 @@ fun SettingsBatterySaverScreen(viewModel: AppViewModel, navController: NavContro
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Режим энергосбережения", style = MaterialTheme.typography.bodyLarge)
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = "Режим энергосбережения",
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Text(
                         "Отключает тяжёлые анимации, неоновые эффекты и фоновые процессы для экономии заряда батареи.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(modifier = Modifier.width(16.dp))
                 Switch(
                     checked = batterySaverEnabled,
                     onCheckedChange = { viewModel.setBatterySaverEnabled(it) }

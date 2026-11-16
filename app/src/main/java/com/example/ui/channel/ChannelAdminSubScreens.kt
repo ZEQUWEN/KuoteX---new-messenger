@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -484,7 +485,7 @@ fun ChannelTypeAdminScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                            .padding(horizontal = 14.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -493,12 +494,17 @@ fun ChannelTypeAdminScreen(
                             tint = TelegramAdminCaptionColor,
                             modifier = Modifier.size(22.dp)
                         )
-                        Spacer(Modifier.width(16.dp))
+                        Spacer(Modifier.width(12.dp))
                         Text(
                             text = "Управление приглашениями",
                             color = Color.White,
                             fontSize = 16.sp,
-                            modifier = Modifier.weight(1f)
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         )
                         val countToDisplay = maxOf(inviteLinks.size, customization.additionalInviteLinks.size)
                         if (countToDisplay > 0) {
@@ -506,7 +512,12 @@ fun ChannelTypeAdminScreen(
                                 text = "$countToDisplay",
                                 color = TelegramAdminPurple,
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.widthIn(max = 140.dp)
                             )
                         }
                     }
@@ -545,7 +556,13 @@ fun ChannelTypeAdminScreen(
                             Text(
                                 text = "Запретить копирование",
                                 color = Color.White,
-                                fontSize = 16.sp
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             )
                             Switch(
                                 checked = restrictSaving,
@@ -1795,28 +1812,48 @@ fun ChannelAdminsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { signMessages = !signMessages }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Подписывать сообщения", color = Color.White, fontSize = 16.sp)
+                            Text(
+                                text = "Подписывать сообщения",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
+                            )
                             TelegramAdminPurpleSwitch(
                                 checked = signMessages,
                                 onCheckedChange = { signMessages = it }
                             )
                         }
 
-                        HorizontalDivider(color = TelegramAdminDividerColor, modifier = Modifier.padding(horizontal = 16.dp))
+                        HorizontalDivider(color = TelegramAdminDividerColor, modifier = Modifier.padding(horizontal = 14.dp))
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { showProfiles = !showProfiles }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Показывать профили авторов", color = Color.White, fontSize = 16.sp)
+                            Text(
+                                text = "Показывать профили авторов",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
+                            )
                             TelegramAdminPurpleSwitch(
                                 checked = showProfiles,
                                 onCheckedChange = { showProfiles = it }
@@ -2350,7 +2387,7 @@ fun ChannelReactionsAdminScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -2358,7 +2395,13 @@ fun ChannelReactionsAdminScreen(
                             text = "Включить реакции",
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         )
                         Switch(
                             checked = reactionsEnabled,
@@ -2399,13 +2442,22 @@ fun ChannelReactionsAdminScreen(
                                     text = "Доступные реакции",
                                     color = TelegramAdminPurple,
                                     fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
                                 )
                                 Text(
                                     text = "${selectedReactions.size}",
                                     color = TelegramAdminCaptionColor,
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    textAlign = TextAlign.End
                                 )
                             }
                             Spacer(Modifier.height(12.dp))
@@ -2518,7 +2570,7 @@ fun ChannelReactionsAdminScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                                .padding(horizontal = 14.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -2526,7 +2578,13 @@ fun ChannelReactionsAdminScreen(
                                 text = "Включить платные реакции",
                                 color = Color.White,
                                 fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             )
                             Switch(
                                 checked = paidStarsEnabled,

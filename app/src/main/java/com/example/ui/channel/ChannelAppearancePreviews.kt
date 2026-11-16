@@ -526,7 +526,9 @@ fun BoostLevelPillBadge(level: Int) {
                 text = "Уровень $level",
                 color = Color.White,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }

@@ -784,13 +784,28 @@ fun GroupNewInviteLinkScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Выбрать другой срок", color = GroupCaption, fontSize = 15.sp)
+                            Text(
+                                text = "Выбрать другой срок",
+                                color = GroupCaption,
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
+                            )
                             if (customDurationMillis != null) {
                                 Text(
                                     text = "${customDurationMillis!! / 3600_000L} ч.",
                                     color = GroupPurple,
                                     fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.widthIn(max = 140.dp)
                                 )
                             }
                         }
@@ -860,13 +875,28 @@ fun GroupNewInviteLinkScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Выбрать другое число", color = GroupCaption, fontSize = 15.sp)
+                                    Text(
+                                        text = "Выбрать другое число",
+                                        color = GroupCaption,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 8.dp)
+                                    )
                                     if (customMaxUses != null) {
                                         Text(
                                             text = "$customMaxUses",
                                             color = GroupPurple,
                                             fontWeight = FontWeight.SemiBold,
-                                            fontSize = 14.sp
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.End,
+                                            modifier = Modifier.widthIn(max = 140.dp)
                                         )
                                     }
                                 }
@@ -894,7 +924,7 @@ fun GroupNewInviteLinkScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { requiresApproval = !requiresApproval }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -902,7 +932,13 @@ fun GroupNewInviteLinkScreen(
                             text = "Заявки на вступление",
                             color = Color.White,
                             fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         )
                         Switch(
                             checked = requiresApproval,
