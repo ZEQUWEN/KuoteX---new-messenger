@@ -78,6 +78,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -805,6 +806,16 @@ fun ChannelDiscussionAdminScreen(
         .getCreatorOwnedGroupIds(activeAccount?.id ?: "")
         .collectAsStateWithLifecycle(initialValue = emptyList())
 
+    LaunchedEffect(chatId) {
+        ChannelCustomizationManager.init(context)
+        viewModel.observeChannelDiscussionSync(chatId).collect { }
+    }
+
+    val channelChat = remember(chats, chatId) { chats.find { it.id == chatId } }
+    val activeLinkedGroupId = remember(channelChat?.linkedDiscussionGroupId, customization.discussionChatId) {
+        channelChat?.linkedDiscussionGroupId?.takeIf { it.isNotBlank() }
+            ?: customization.discussionChatId?.takeIf { it.isNotBlank() }
+    }
     val allGroups = remember(chats, chatId) {
         chats.filter { it.isGroup && !it.isChannel && it.id != chatId }
     }
@@ -814,10 +825,14 @@ fun ChannelDiscussionAdminScreen(
     val otherGroups = remember(allGroups, creatorGroupIds) {
         allGroups.filterNot { creatorGroupIds.contains(it.id) }
     }
-    val linkedGroupChat = remember(chats, customization.discussionChatId) {
-        customization.discussionChatId?.let { linkedId ->
+    val linkedGroupChat = remember(chats, activeLinkedGroupId) {
+        activeLinkedGroupId?.let { linkedId ->
             chats.find { it.id == linkedId && it.isGroup }
         }
+    }
+    val activeLinkedTitle = remember(linkedGroupChat?.title, customization.discussionChatTitle) {
+        linkedGroupChat?.title?.takeIf { it.isNotBlank() }
+            ?: customization.discussionChatTitle
     }
     val linkedGroupCustomization = linkedGroupChat?.id?.let { customizationsMap[it] }
 
@@ -838,8 +853,9 @@ fun ChannelDiscussionAdminScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        ChannelCustomizationManager.unlinkDiscussionChat(chatId)
-                        Toast.makeText(context, "Группа отвязана", Toast.LENGTH_SHORT).show()
+                        viewModel.unlinkDiscussionGroup(chatId) {
+                            Toast.makeText(context, "Группа отвязана", Toast.LENGTH_SHORT).show()
+                        }
                         showUnlinkConfirm = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252))
@@ -981,12 +997,12 @@ fun ChannelDiscussionAdminScreen(
                 ) {
                     DiscussionHeroIllustration()
                     Spacer(Modifier.height(14.dp))
-                    if (customization.discussionChatId != null && customization.discussionChatTitle.isNotBlank()) {
+                    if (!activeLinkedGroupId.isNullOrBlank() && activeLinkedTitle.isNotBlank()) {
                         Text(
                             text = buildAnnotatedString {
                                 append("В группе «")
                                 withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) {
-                                    append(customization.discussionChatTitle)
+                                    append(activeLinkedTitle)
                                 }
                                 append("» будут появляться комментарии к публикациям канала.")
                             },
@@ -1010,8 +1026,8 @@ fun ChannelDiscussionAdminScreen(
             }
 
             // Currently Linked Group Card + Unlink (Telegram Video 00:00)
-            val activeLinkedId = customization.discussionChatId
-            if (!activeLinkedId.isNullOrBlank() && customization.discussionChatTitle.isNotBlank()) {
+            val activeLinkedId = activeLinkedGroupId
+            if (!activeLinkedId.isNullOrBlank() && activeLinkedTitle.isNotBlank()) {
                 item {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
@@ -1031,7 +1047,7 @@ fun ChannelDiscussionAdminScreen(
                             ) {
                                 LinkedGroupAvatar(
                                     groupId = activeLinkedId,
-                                    groupTitle = customization.discussionChatTitle,
+                                    groupTitle = activeLinkedTitle,
                                     avatarUrl = linkedGroupCustomization?.avatarUrl,
                                     avatarSize = 46.dp,
                                     testTag = "linked_discussion_group_avatar",
@@ -1042,15 +1058,19 @@ fun ChannelDiscussionAdminScreen(
                                 Spacer(Modifier.width(14.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = customization.discussionChatTitle,
+                                        text = activeLinkedTitle,
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = 16.sp
+                                        fontSize = 16.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = if (linkedGroupCustomization?.isPublic == true) "Публичная группа" else "Частная группа",
                                         color = TelegramAdminCaptionColor,
-                                        fontSize = 13.sp
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 Icon(
@@ -1128,8 +1148,8 @@ fun ChannelDiscussionAdminScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        ChannelCustomizationManager.updateDiscussionSettings(
-                                            chatId = chatId,
+                                        viewModel.updateChannelDiscussionSettings(
+                                            channelId = chatId,
                                             onlyMembersCanSend = !customization.discussionOnlyMembersCanSend,
                                             joinRequestsRequired = customization.discussionJoinRequestsRequired
                                         )
@@ -1142,13 +1162,15 @@ fun ChannelDiscussionAdminScreen(
                                     text = "Только участники",
                                     color = Color.White,
                                     fontSize = 16.sp,
-                                    modifier = Modifier.weight(1f)
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp)
                                 )
                                 Switch(
                                     checked = customization.discussionOnlyMembersCanSend,
                                     onCheckedChange = { checked ->
-                                        ChannelCustomizationManager.updateDiscussionSettings(
-                                            chatId = chatId,
+                                        viewModel.updateChannelDiscussionSettings(
+                                            channelId = chatId,
                                             onlyMembersCanSend = checked,
                                             joinRequestsRequired = customization.discussionJoinRequestsRequired
                                         )
@@ -1164,8 +1186,8 @@ fun ChannelDiscussionAdminScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        ChannelCustomizationManager.updateDiscussionSettings(
-                                            chatId = chatId,
+                                        viewModel.updateChannelDiscussionSettings(
+                                            channelId = chatId,
                                             onlyMembersCanSend = customization.discussionOnlyMembersCanSend,
                                             joinRequestsRequired = !customization.discussionJoinRequestsRequired
                                         )
@@ -1178,13 +1200,15 @@ fun ChannelDiscussionAdminScreen(
                                     text = "Заявки на вступление",
                                     color = Color.White,
                                     fontSize = 16.sp,
-                                    modifier = Modifier.weight(1f)
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp)
                                 )
                                 Switch(
                                     checked = customization.discussionJoinRequestsRequired,
                                     onCheckedChange = { checked ->
-                                        ChannelCustomizationManager.updateDiscussionSettings(
-                                            chatId = chatId,
+                                        viewModel.updateChannelDiscussionSettings(
+                                            channelId = chatId,
                                             onlyMembersCanSend = customization.discussionOnlyMembersCanSend,
                                             joinRequestsRequired = checked
                                         )
@@ -1263,7 +1287,7 @@ fun ChannelDiscussionAdminScreen(
                             )
                         } else {
                             myCreatedGroups.forEachIndexed { idx, group ->
-                                val isLinked = customization.discussionChatId == group.id
+                                val isLinked = activeLinkedGroupId == group.id
                                 val groupCustom = customizationsMap[group.id]
                                 Row(
                                     modifier = Modifier

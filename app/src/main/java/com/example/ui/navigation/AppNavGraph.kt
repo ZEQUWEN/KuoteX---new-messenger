@@ -97,6 +97,7 @@ object AppDestinations {
     const val CHANNEL_DIRECT_MESSAGES = "channel_direct_messages/{channelId}?subscriberId={subscriberId}&adminMode={adminMode}"
     const val CHANNEL_APPEARANCE = "channel_appearance/{chatId}"
     const val CHANNEL_BOOST = "channel_boost/{chatId}"
+    const val CHANNEL_POST_COMMENTS = "channel_post_comments/{channelId}/{postId}"
     const val BUY_STARS = "buy_stars"
     const val GROUP_INVITE_LINKS = "group/{chatId}/invite_links"
     const val GROUP_NEW_INVITE_LINK = "group/{chatId}/invite_links/new"
@@ -137,6 +138,7 @@ object AppDestinations {
     }
     fun channelAppearance(chatId: String) = "channel_appearance/$chatId"
     fun channelBoost(chatId: String) = "channel_boost/$chatId"
+    fun channelPostComments(channelId: String, postId: String) = "channel_post_comments/$channelId/$postId"
     fun buyStars() = BUY_STARS
     fun groupInviteLinks(chatId: String) = "group/$chatId/invite_links"
     fun groupNewInviteLink(chatId: String) = "group/$chatId/invite_links/new"
@@ -809,6 +811,18 @@ fun MainAppNavGraph(
                         navController = navController
                     )
                 }
+            }
+        }
+        composable(AppDestinations.CHANNEL_POST_COMMENTS) { backStackEntry ->
+            val channelId = backStackEntry.arguments?.getString("channelId")
+            val postId = backStackEntry.arguments?.getString("postId")
+            if (channelId != null && postId != null) {
+                ChannelPostCommentsScreen(
+                    viewModel = viewModel,
+                    channelId = channelId,
+                    postId = postId,
+                    navController = navController
+                )
             }
         }
         composable(AppDestinations.GROUP_INVITE_LINKS) { backStackEntry ->

@@ -83,8 +83,16 @@ fun ChannelProfileScreen(
     val customizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val customization = customizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
     val palette = TelegramProfilePalettes.getPalette(customization.profileColorId)
-    val linkedGroup = remember(chats, customization.discussionChatId) {
-        customization.discussionChatId?.let { linkedId ->
+    LaunchedEffect(chatId) {
+        viewModel.observeChannelDiscussionSync(chatId).collect { }
+    }
+
+    val effectiveLinkedGroupId = remember(chat?.linkedDiscussionGroupId, customization.discussionChatId) {
+        chat?.linkedDiscussionGroupId?.takeIf { it.isNotBlank() }
+            ?: customization.discussionChatId?.takeIf { it.isNotBlank() }
+    }
+    val linkedGroup = remember(chats, effectiveLinkedGroupId) {
+        effectiveLinkedGroupId?.let { linkedId ->
             chats.find { it.id == linkedId && it.isGroup }
         }
     }
@@ -566,8 +574,8 @@ fun ChannelProfileScreen(
                                 showSendGiftDialog = true
                             },
                             onViewDiscussion = {
-                                if (customization.discussionChatId != null) {
-                                    navController.navigateSafe("chat/${customization.discussionChatId}")
+                                if (effectiveLinkedGroupId != null) {
+                                    navController.navigateSafe("chat/$effectiveLinkedGroupId")
                                 } else {
                                     Toast.makeText(context, "Обсуждение: ${customization.discussionChatTitle}", Toast.LENGTH_SHORT).show()
                                 }

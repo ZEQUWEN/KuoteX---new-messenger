@@ -21,6 +21,9 @@ import com.example.ui.Message
 import com.example.ui.UserAccount
 import com.example.ui.rating.UserRatingDao
 import com.example.ui.rating.UserRatingEntity
+import com.example.ui.channel.ChannelPostCommentDao
+import com.example.ui.channel.ChannelPostCommentEntity
+import com.example.ui.channel.PostCommentCountRow
 import com.example.ui.group.GroupInviteLinkEntity
 import com.example.ui.group.GroupJoinRequestEntity
 import com.example.ui.group.UserPrivacyRuleEntity
@@ -117,6 +120,12 @@ interface ChatDao {
     @Query("UPDATE chats SET title = :title WHERE id = :chatId")
     suspend fun updateChatTitle(chatId: String, title: String)
 
+    @Query("UPDATE chats SET linkedDiscussionGroupId = :groupId WHERE id = :channelId")
+    suspend fun updateLinkedDiscussionGroup(channelId: String, groupId: String?)
+
+    @Query("UPDATE chats SET linkedChannelId = :channelId WHERE id = :groupId")
+    suspend fun updateLinkedChannelId(groupId: String, channelId: String?)
+
     @Query("DELETE FROM chats WHERE id = :chatId")
     suspend fun deleteChat(chatId: String)
 }
@@ -148,6 +157,15 @@ interface MessageDao {
     
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
     suspend fun getMessageById(messageId: String): Message?
+
+    @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
+    fun observeMessageById(messageId: String): Flow<Message?>
+
+    @Query("UPDATE messages SET commentCount = :count WHERE id = :messageId")
+    suspend fun updateCommentCount(messageId: String, count: Int)
+
+    @Query("UPDATE messages SET mirroredGroupMessageId = :mirroredId WHERE id = :messageId")
+    suspend fun updateMirroredGroupMessageId(messageId: String, mirroredId: String?)
     
     @Query("UPDATE messages SET isRead = 1 WHERE chatId = :chatId AND senderId != :myUserId")
     suspend fun markAsRead(chatId: String, myUserId: String)
@@ -391,9 +409,10 @@ interface QueuedMessageDao {
         UserRatingEntity::class,
         GroupInviteLinkEntity::class,
         GroupJoinRequestEntity::class,
-        UserPrivacyRuleEntity::class
+        UserPrivacyRuleEntity::class,
+        ChannelPostCommentEntity::class
     ],
-    version = 28,
+    version = 29,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -410,6 +429,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun groupInviteLinkDao(): GroupInviteLinkDao
     abstract fun groupJoinRequestDao(): GroupJoinRequestDao
     abstract fun userPrivacyRuleDao(): UserPrivacyRuleDao
+    abstract fun channelPostCommentDao(): ChannelPostCommentDao
 }
 
 class MessengerRepository(
@@ -426,7 +446,8 @@ class MessengerRepository(
     val webSocketManager: com.example.data.WebSocketManager,
     private val groupInviteLinkDao: GroupInviteLinkDao? = null,
     private val groupJoinRequestDao: GroupJoinRequestDao? = null,
-    private val userPrivacyRuleDao: UserPrivacyRuleDao? = null
+    private val userPrivacyRuleDao: UserPrivacyRuleDao? = null,
+    private val channelPostCommentDao: ChannelPostCommentDao? = null
 ) {
 
     fun getAllQueuedMessages(): Flow<List<QueuedMessage>> = queuedMessageDao.getAllQueuedMessages()
@@ -676,6 +697,56 @@ class MessengerRepository(
         userPrivacyRuleDao?.getPrivacyRuleSync(userId)
     suspend fun upsertPrivacyRule(rule: UserPrivacyRuleEntity) {
         userPrivacyRuleDao?.upsertPrivacyRule(rule)
+    }
+
+    suspend fun updateLinkedDiscussionGroup(channelId: String, groupId: String?) =
+        chatDao.updateLinkedDiscussionGroup(channelId, groupId)
+
+    suspend fun updateLinkedChannelId(groupId: String, channelId: String?) =
+        chatDao.updateLinkedChannelId(groupId, channelId)
+
+    fun observeMessageById(messageId: String): Flow<Message?> =
+        messageDao.observeMessageById(messageId).map { msg ->
+            msg?.copy(
+                text = CryptoManager.decrypt(msg.text),
+                audioPath = msg.audioPath?.let { p -> CryptoManager.decrypt(p) },
+                mediaPath = msg.mediaPath?.let { p -> CryptoManager.decrypt(p) },
+                documentData = msg.documentData?.let { p -> CryptoManager.decrypt(p) }
+            )
+        }
+
+    suspend fun getDecryptedMessageById(messageId: String): Message? =
+        messageDao.getMessageById(messageId)?.let { msg ->
+            msg.copy(
+                text = CryptoManager.decrypt(msg.text),
+                audioPath = msg.audioPath?.let { p -> CryptoManager.decrypt(p) },
+                mediaPath = msg.mediaPath?.let { p -> CryptoManager.decrypt(p) },
+                documentData = msg.documentData?.let { p -> CryptoManager.decrypt(p) }
+            )
+        }
+
+    suspend fun updateMessageCommentCount(messageId: String, count: Int) =
+        messageDao.updateCommentCount(messageId, count)
+
+    suspend fun updateMirroredGroupMessageId(messageId: String, mirroredId: String?) =
+        messageDao.updateMirroredGroupMessageId(messageId, mirroredId)
+
+    // Channel Post Comments
+    fun observeCommentsForPost(channelId: String, postId: String): Flow<List<ChannelPostCommentEntity>> =
+        channelPostCommentDao?.observeCommentsForPost(channelId, postId) ?: flowOf(emptyList())
+
+    fun observeCommentCountsForChannel(channelId: String): Flow<Map<String, Int>> =
+        (channelPostCommentDao?.observeCommentCountsForChannel(channelId) ?: flowOf(emptyList()))
+            .map { rows -> rows.associate { it.postId to it.commentCount } }
+
+    suspend fun getCommentsForPostSync(channelId: String, postId: String): List<ChannelPostCommentEntity> =
+        channelPostCommentDao?.getCommentsForPostSync(channelId, postId) ?: emptyList()
+
+    suspend fun getCommentCountSync(channelId: String, postId: String): Int =
+        channelPostCommentDao?.getCommentCountSync(channelId, postId) ?: 0
+
+    suspend fun insertPostComment(comment: ChannelPostCommentEntity) {
+        channelPostCommentDao?.insertComment(comment)
     }
 
     suspend fun deleteMessage(messageId: String) = messageDao.deleteMessage(messageId)

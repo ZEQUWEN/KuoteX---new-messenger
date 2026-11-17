@@ -85,7 +85,11 @@ class DefaultAppContainer(override val context: Context) : AppContainer {
             db.paymentTransactionDao(),
             db.queuedMessageDao(),
             sharedPreferences,
-            webSocketManager
+            webSocketManager,
+            db.groupInviteLinkDao(),
+            db.groupJoinRequestDao(),
+            db.userPrivacyRuleDao(),
+            db.channelPostCommentDao()
         )
     }
 

@@ -147,9 +147,13 @@ object ChannelCustomizationManager {
         )
     )
 
+    private var initializedContext: Context? = null
+
     fun init(context: Context) {
-        if (prefs != null) return
-        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val appContext = context.applicationContext ?: context
+        if (prefs != null && initializedContext === appContext) return
+        initializedContext = appContext
+        prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadPersistedAppearances()
     }
 
@@ -180,7 +184,17 @@ object ChannelCustomizationManager {
                         wallpaperDim = obj.optDouble("wallpaperDim", base.wallpaperDim.toDouble()).toFloat(),
                         wallpaperPatternOpacity = obj.optDouble("wallpaperPatternOpacity", base.wallpaperPatternOpacity.toDouble()).toFloat(),
                         directMessagesEnabled = obj.optBoolean("directMessagesEnabled", base.directMessagesEnabled),
-                        directMessageStarPrice = obj.optInt("directMessageStarPrice", base.directMessageStarPrice)
+                        directMessageStarPrice = obj.optInt("directMessageStarPrice", base.directMessageStarPrice),
+                        discussionChatId = if (!obj.has("discussionChatId")) base.discussionChatId else if (obj.isNull("discussionChatId")) null else obj.optString("discussionChatId", "").ifBlank { null },
+                        discussionChatTitle = if (obj.has("discussionChatTitle")) obj.optString("discussionChatTitle", base.discussionChatTitle) else base.discussionChatTitle,
+                        discussionOnlyMembersCanSend = obj.optBoolean("discussionOnlyMembersCanSend", base.discussionOnlyMembersCanSend),
+                        discussionJoinRequestsRequired = obj.optBoolean("discussionJoinRequestsRequired", base.discussionJoinRequestsRequired),
+                        isPublic = obj.optBoolean("isPublic", base.isPublic),
+                        inviteLink = if (obj.has("inviteLink")) obj.optString("inviteLink", base.inviteLink) else base.inviteLink,
+                        description = if (obj.has("description")) obj.optString("description", base.description) else base.description,
+                        avatarUrl = if (!obj.has("avatarUrl") || obj.isNull("avatarUrl")) base.avatarUrl else obj.optString("avatarUrl", "").ifBlank { null },
+                        subscriberCount = obj.optInt("subscriberCount", base.subscriberCount),
+                        restrictSavingContent = obj.optBoolean("restrictSavingContent", base.restrictSavingContent)
                     )
                 }
                 mutable
@@ -209,6 +223,16 @@ object ChannelCustomizationManager {
                     put("wallpaperPatternOpacity", c.wallpaperPatternOpacity.toDouble())
                     put("directMessagesEnabled", c.directMessagesEnabled)
                     put("directMessageStarPrice", c.directMessageStarPrice)
+                    put("discussionChatId", c.discussionChatId ?: JSONObject.NULL)
+                    put("discussionChatTitle", c.discussionChatTitle)
+                    put("discussionOnlyMembersCanSend", c.discussionOnlyMembersCanSend)
+                    put("discussionJoinRequestsRequired", c.discussionJoinRequestsRequired)
+                    put("isPublic", c.isPublic)
+                    put("inviteLink", c.inviteLink)
+                    put("description", c.description)
+                    put("avatarUrl", c.avatarUrl ?: JSONObject.NULL)
+                    put("subscriberCount", c.subscriberCount)
+                    put("restrictSavingContent", c.restrictSavingContent)
                 }
                 root.put(chatId, obj)
             }
@@ -233,6 +257,7 @@ object ChannelCustomizationManager {
             val updated = current.copy(avatarUrl = avatarUrl)
             map + (chatId to updated)
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = "Обновлен аватар",
@@ -666,6 +691,7 @@ object ChannelCustomizationManager {
             )
             map + (chatId to updated)
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = "Создан канал",
@@ -682,6 +708,7 @@ object ChannelCustomizationManager {
                 restrictSavingContent = restrictSaving
             ))
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = "Тип канала",
@@ -694,6 +721,7 @@ object ChannelCustomizationManager {
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
             map + (chatId to current.copy(inviteLink = inviteLink))
         }
+        persistAppearances()
     }
 
     fun updateDiscussionChat(chatId: String, discussionTitle: String) {
@@ -701,6 +729,7 @@ object ChannelCustomizationManager {
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
             map + (chatId to current.copy(discussionChatTitle = discussionTitle))
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = "Обсуждение",
@@ -716,6 +745,7 @@ object ChannelCustomizationManager {
                 discussionChatTitle = discussionTitle
             ))
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = "Привязана группа обсуждений",
@@ -734,6 +764,7 @@ object ChannelCustomizationManager {
                 discussionJoinRequestsRequired = false
             ))
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = "Отвязана группа обсуждений",
@@ -753,11 +784,31 @@ object ChannelCustomizationManager {
                 discussionJoinRequestsRequired = joinRequestsRequired
             ))
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = "Настройки обсуждения",
             details = "Только участники: ${if (onlyMembersCanSend) "Да" else "Нет"}, Заявки: ${if (joinRequestsRequired) "Да" else "Нет"}"
         )
+    }
+
+    fun syncRemoteDiscussionLink(
+        chatId: String,
+        discussionChatId: String?,
+        discussionTitle: String,
+        onlyMembersCanSend: Boolean,
+        joinRequestsRequired: Boolean
+    ) {
+        customizations.update { map ->
+            val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
+            map + (chatId to current.copy(
+                discussionChatId = discussionChatId,
+                discussionChatTitle = discussionTitle,
+                discussionOnlyMembersCanSend = onlyMembersCanSend,
+                discussionJoinRequestsRequired = joinRequestsRequired
+            ))
+        }
+        persistAppearances()
     }
 
     fun getLinkedChannelForGroup(groupChatId: String): ChannelCustomization? {

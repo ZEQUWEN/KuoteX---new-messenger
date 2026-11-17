@@ -115,7 +115,9 @@ data class Message(
     val senderDisplayName: String? = null,
     val senderAvatarUrl: String? = null,
     val senderCustomTag: String? = null,
-    val senderEmojiStatus: String? = null
+    val senderEmojiStatus: String? = null,
+    val commentCount: Int = 0,
+    val mirroredGroupMessageId: String? = null
 )
 
 @Entity(tableName = "chats")
@@ -137,7 +139,9 @@ data class Chat(
     val isArchived: Boolean = false,
     val isMuted: Boolean = false,
     val isPinned: Boolean = false,
-    val pinnedTimestamp: Long = 0L
+    val pinnedTimestamp: Long = 0L,
+    val linkedDiscussionGroupId: String? = null,
+    val linkedChannelId: String? = null
 )
 
 @Entity(
@@ -694,6 +698,34 @@ class AppViewModel(
             activeAccount.collect { acc ->
                 com.example.ui.rating.UserRatingManager.setActiveOwnUserId(acc?.id)
             }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            reconcilePersistentDiscussionLinks()
+        }
+    }
+
+    private suspend fun reconcilePersistentDiscussionLinks() {
+        try {
+            val allChats = repository.allChats.firstOrNull().orEmpty()
+            allChats.forEach { ch ->
+                if (ch.isChannel) {
+                    val custom = com.example.ui.channel.ChannelCustomizationManager.getCustomization(ch.id)
+                    val roomGroupId = ch.linkedDiscussionGroupId?.takeIf { it.isNotBlank() }
+                    val prefGroupId = custom.discussionChatId?.takeIf { it.isNotBlank() }
+                    if (roomGroupId != null && prefGroupId == null) {
+                        val grp = allChats.find { it.id == roomGroupId }
+                        com.example.ui.channel.ChannelCustomizationManager.linkDiscussionChat(
+                            chatId = ch.id,
+                            discussionChatId = roomGroupId,
+                            discussionTitle = grp?.title ?: custom.discussionChatTitle.ifBlank { "Чат обсуждений" }
+                        )
+                    } else if (roomGroupId == null && prefGroupId != null) {
+                        repository.updateLinkedDiscussionGroup(ch.id, prefGroupId)
+                        repository.updateLinkedChannelId(prefGroupId, ch.id)
+                    }
+                }
+            }
+        } catch (_: Exception) {
         }
     }
 
@@ -1864,11 +1896,30 @@ class AppViewModel(
                 return@launch
             }
 
+            val previousGroupId = channelChat?.linkedDiscussionGroupId
+                ?: com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId).discussionChatId
+            if (!previousGroupId.isNullOrBlank() && previousGroupId != targetGroupChat.id) {
+                repository.updateLinkedChannelId(previousGroupId, null)
+            }
+            repository.updateLinkedDiscussionGroup(channelId, targetGroupChat.id)
+            repository.updateLinkedChannelId(targetGroupChat.id, channelId)
             com.example.ui.channel.ChannelCustomizationManager.linkDiscussionChat(
                 chatId = channelId,
                 discussionChatId = targetGroupChat.id,
                 discussionTitle = targetGroupChat.title
             )
+            val customAfterLink = com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId)
+            if (channelChat != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    com.example.ui.channel.ChannelDiscussionFirestoreSync.syncChannelDiscussionLink(
+                        channelChat = channelChat,
+                        groupChat = targetGroupChat,
+                        discussionTitle = targetGroupChat.title,
+                        onlyMembersCanSend = customAfterLink.discussionOnlyMembersCanSend,
+                        joinRequestsRequired = customAfterLink.discussionJoinRequestsRequired
+                    )
+                }
+            }
             kotlinx.coroutines.withContext(Dispatchers.Main) {
                 onResult(true, "Привязана группа «${targetGroupChat.title}»")
             }
@@ -1907,7 +1958,8 @@ class AppViewModel(
                 isGroup = true,
                 isSecret = false,
                 isChannel = false,
-                lastMessage = ""
+                lastMessage = "",
+                linkedChannelId = channelId
             )
             repository.insertChat(newGroupChat)
 
@@ -1954,13 +2006,81 @@ class AppViewModel(
                     isPrimary = true
                 )
             )
+            val previousGroupId = channelChat?.linkedDiscussionGroupId
+                ?: com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId).discussionChatId
+            if (!previousGroupId.isNullOrBlank() && previousGroupId != newGroupId) {
+                repository.updateLinkedChannelId(previousGroupId, null)
+            }
+            repository.updateLinkedDiscussionGroup(channelId, newGroupId)
+            repository.updateLinkedChannelId(newGroupId, channelId)
             com.example.ui.channel.ChannelCustomizationManager.linkDiscussionChat(
                 chatId = channelId,
                 discussionChatId = newGroupId,
                 discussionTitle = trimmedName
             )
+            val customAfterLink = com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId)
+            if (channelChat != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    com.example.ui.channel.ChannelDiscussionFirestoreSync.syncChannelDiscussionLink(
+                        channelChat = channelChat,
+                        groupChat = newGroupChat,
+                        discussionTitle = trimmedName,
+                        onlyMembersCanSend = customAfterLink.discussionOnlyMembersCanSend,
+                        joinRequestsRequired = customAfterLink.discussionJoinRequestsRequired
+                    )
+                }
+            }
             kotlinx.coroutines.withContext(Dispatchers.Main) {
                 onResult(true, newGroupChat, "Группа «$trimmedName» создана и привязана")
+            }
+        }
+    }
+
+    fun unlinkDiscussionGroup(channelId: String, onDone: (() -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val channelChat = repository.getChatById(channelId)
+            val previousGroupId = channelChat?.linkedDiscussionGroupId
+                ?: com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId).discussionChatId
+            repository.updateLinkedDiscussionGroup(channelId, null)
+            if (!previousGroupId.isNullOrBlank()) {
+                repository.updateLinkedChannelId(previousGroupId, null)
+            }
+            com.example.ui.channel.ChannelCustomizationManager.unlinkDiscussionChat(channelId)
+            com.example.ui.channel.ChannelDiscussionFirestoreSync.unlinkChannelDiscussionLink(
+                channelId = channelId,
+                previousGroupId = previousGroupId
+            )
+            if (onDone != null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onDone() }
+            }
+        }
+    }
+
+    fun updateChannelDiscussionSettings(
+        channelId: String,
+        onlyMembersCanSend: Boolean,
+        joinRequestsRequired: Boolean
+    ) {
+        com.example.ui.channel.ChannelCustomizationManager.updateDiscussionSettings(
+            chatId = channelId,
+            onlyMembersCanSend = onlyMembersCanSend,
+            joinRequestsRequired = joinRequestsRequired
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            val channelChat = repository.getChatById(channelId) ?: return@launch
+            val groupId = channelChat.linkedDiscussionGroupId
+                ?: com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId).discussionChatId
+            val groupChat = groupId?.let { repository.getChatById(it) }
+            val title = groupChat?.title
+                ?: com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId).discussionChatTitle
+            if (groupChat != null) {
+                com.example.ui.channel.ChannelDiscussionFirestoreSync.syncChannelDiscussionLink(
+                    channelChat = channelChat,
+                    groupChat = groupChat,
+                    discussionTitle = title,
+                    onlyMembersCanSend = onlyMembersCanSend,
+                    joinRequestsRequired = joinRequestsRequired
+                )
             }
         }
     }
@@ -2160,12 +2280,14 @@ class AppViewModel(
             if (targetChat?.isChannel == true) {
                 val channelCustom = com.example.ui.channel.ChannelCustomizationManager
                     .getCustomization(chatId)
-                val linkedGroupId = channelCustom.discussionChatId
+                val linkedGroupId = targetChat.linkedDiscussionGroupId?.takeIf { it.isNotBlank() }
+                    ?: channelCustom.discussionChatId
                 if (!linkedGroupId.isNullOrBlank() && linkedGroupId != chatId) {
                     val linkedGroup = repository.getChatById(linkedGroupId)
                     if (linkedGroup != null && linkedGroup.isGroup && !linkedGroup.isChannel) {
+                        val fwdMsgId = java.util.UUID.randomUUID().toString()
                         val fwdMsg = Message(
-                            id = java.util.UUID.randomUUID().toString(),
+                            id = fwdMsgId,
                             chatId = linkedGroupId,
                             senderId = senderId,
                             text = encryptedMsg,
@@ -2175,9 +2297,10 @@ class AppViewModel(
                             documentData = documentData,
                             timestamp = System.currentTimeMillis() + 5L,
                             isDelivered = isOnline,
-                            isForwarded = true,
-                            forwardOriginalSenderId = chatId,
-                            forwardOriginalSenderName = targetChat.title,
+                            isPinned = true,
+                            isForwarded = false,
+                            forwardOriginalSenderId = null,
+                            forwardOriginalSenderName = null,
                             forwardHideSender = false,
                             senderIdentityId = chatId,
                             senderIdentityType = "CHANNEL",
@@ -2187,6 +2310,16 @@ class AppViewModel(
                             senderEmojiStatus = channelCustom.emojiStatus
                         )
                         repository.insertMessageAndUpdateChat(fwdMsg, sanitizedText, targetChat.title)
+                        repository.updatePinStatus(fwdMsgId, true)
+                        repository.updatePinnedMessage(linkedGroupId, fwdMsgId)
+                        repository.updateMirroredGroupMessageId(messageId, fwdMsgId)
+                        viewModelScope.launch(Dispatchers.IO) {
+                            com.example.ui.channel.ChannelDiscussionFirestoreSync.syncMirroredGroupMessage(
+                                groupId = linkedGroupId,
+                                message = fwdMsg,
+                                plainText = sanitizedText
+                            )
+                        }
                     }
                 }
             }
@@ -2399,11 +2532,16 @@ class AppViewModel(
     fun pinMessage(chatId: String, messageId: String) {
         viewModelScope.launch {
             repository.updatePinStatus(messageId, true)
+            repository.updatePinnedMessage(chatId, messageId)
         }
     }
     fun unpinMessage(chatId: String, messageId: String) {
         viewModelScope.launch {
             repository.updatePinStatus(messageId, false)
+            val remainingPinned = repository.getMessages(chatId).firstOrNull()
+                ?.filter { it.id != messageId && it.isPinned }
+                ?.maxByOrNull { it.timestamp }
+            repository.updatePinnedMessage(chatId, remainingPinned?.id)
         }
     }
     fun switchAccount(accountId: String) {
@@ -3878,6 +4016,251 @@ class AppViewModel(
                 packageId = packageId
             )
             onResult(result)
+        }
+    }
+
+    // --- Channel Discussion Link Sync & Post Comments ("Комментарии") ---
+
+    fun observeChannelPostCommentCounts(channelId: String): Flow<Map<String, Int>> {
+        return repository.observeCommentCountsForChannel(channelId)
+    }
+
+    fun observePostMessage(postId: String): Flow<Message?> {
+        return repository.observeMessageById(postId)
+    }
+
+    fun observePostComments(channelId: String, postId: String): Flow<List<com.example.ui.channel.ChannelPostCommentEntity>> {
+        return repository.observeCommentsForPost(channelId, postId)
+    }
+
+    fun observeChannelDiscussionSync(channelId: String): Flow<Unit> {
+        return com.example.ui.channel.ChannelDiscussionFirestoreSync
+            .observeChannelDiscussionLink(channelId)
+            .map { remote ->
+                if (remote != null) {
+                    val localChat = repository.getChatById(channelId)
+                    val remoteGroupId = remote.linkedDiscussionGroupId?.takeIf { it.isNotBlank() }
+                    if (remoteGroupId != null) {
+                        val existingGroup = repository.getChatById(remoteGroupId)
+                        if (existingGroup == null) {
+                            repository.insertChat(
+                                Chat(
+                                    id = remoteGroupId,
+                                    title = remote.linkedDiscussionGroupTitle.ifBlank { "Обсуждение" },
+                                    isChannel = false,
+                                    isGroup = true,
+                                    lastMessage = "",
+                                    linkedChannelId = channelId
+                                )
+                            )
+                        } else if (existingGroup.linkedChannelId != channelId) {
+                            repository.updateLinkedChannelId(remoteGroupId, channelId)
+                        }
+                    } else if (!localChat?.linkedDiscussionGroupId.isNullOrBlank()) {
+                        repository.updateLinkedChannelId(localChat!!.linkedDiscussionGroupId!!, null)
+                    }
+                    if (localChat != null && localChat.linkedDiscussionGroupId != remoteGroupId) {
+                        repository.updateLinkedDiscussionGroup(channelId, remoteGroupId)
+                    }
+                    com.example.ui.channel.ChannelCustomizationManager.syncRemoteDiscussionLink(
+                        chatId = channelId,
+                        discussionChatId = remoteGroupId,
+                        discussionTitle = remote.linkedDiscussionGroupTitle,
+                        onlyMembersCanSend = remote.onlyMembersCanSend,
+                        joinRequestsRequired = remote.joinRequestsRequired
+                    )
+                }
+            }
+    }
+
+    fun observeRemotePostCommentsSync(channelId: String, postId: String): Flow<Unit> {
+        return com.example.ui.channel.ChannelDiscussionFirestoreSync
+            .observePostComments(channelId, postId)
+            .map { remoteList ->
+                if (remoteList.isNotEmpty()) {
+                    remoteList.forEach { comment ->
+                        repository.insertPostComment(comment)
+                    }
+                    val total = repository.getCommentCountSync(channelId, postId)
+                    val post = repository.getMessageById(postId)
+                    if (post != null && total > post.commentCount) {
+                        repository.updateMessageCommentCount(postId, total)
+                    }
+                }
+            }
+    }
+
+    private suspend fun ensureMirroredGroupPost(
+        channelId: String,
+        channelChat: Chat?,
+        post: Message,
+        linkedGroupId: String
+    ): String {
+        val existingMirroredId = post.mirroredGroupMessageId
+        if (!existingMirroredId.isNullOrBlank()) {
+            val existingMsg = repository.getMessageById(existingMirroredId)
+            if (existingMsg != null) {
+                if (!existingMsg.isPinned) {
+                    repository.updatePinStatus(existingMirroredId, true)
+                    repository.updatePinnedMessage(linkedGroupId, existingMirroredId)
+                }
+                return existingMirroredId
+            }
+        }
+        val channelCustom = com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId)
+        val channelTitle = channelChat?.title?.ifBlank { "Канал" } ?: "Канал"
+        val encryptedBody = signalProtocolManager.encryptMessage(post.text)
+        val newMirroredId = java.util.UUID.randomUUID().toString()
+        val fwdMsg = Message(
+            id = newMirroredId,
+            chatId = linkedGroupId,
+            senderId = post.senderId,
+            text = encryptedBody,
+            audioPath = post.audioPath,
+            mediaPath = post.mediaPath,
+            mediaType = post.mediaType,
+            documentData = post.documentData,
+            timestamp = post.timestamp,
+            isDelivered = true,
+            isPinned = true,
+            isForwarded = false,
+            forwardOriginalSenderId = null,
+            forwardOriginalSenderName = null,
+            forwardHideSender = false,
+            senderIdentityId = channelId,
+            senderIdentityType = "CHANNEL",
+            senderDisplayName = channelTitle,
+            senderAvatarUrl = channelCustom.avatarUrl,
+            senderCustomTag = "канал",
+            senderEmojiStatus = channelCustom.emojiStatus
+        )
+        repository.insertMessageAndUpdateChat(fwdMsg, post.text, channelTitle)
+        repository.updatePinStatus(newMirroredId, true)
+        repository.updatePinnedMessage(linkedGroupId, newMirroredId)
+        repository.updateMirroredGroupMessageId(post.id, newMirroredId)
+        com.example.ui.channel.ChannelDiscussionFirestoreSync.syncMirroredGroupMessage(
+            groupId = linkedGroupId,
+            message = fwdMsg,
+            plainText = post.text
+        )
+        return newMirroredId
+    }
+
+    fun sendPostComment(
+        channelId: String,
+        postId: String,
+        text: String,
+        postAsChannel: Boolean,
+        mediaPath: String? = null,
+        mediaType: String? = null,
+        documentData: String? = null,
+        replyToComment: com.example.ui.channel.ChannelPostCommentEntity? = null,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        val cleanText = MessageSanitizer.sanitize(text)
+        if (cleanText.isBlank() && mediaPath.isNullOrBlank() && documentData.isNullOrBlank()) {
+            onComplete?.invoke(false)
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = activeAccount.value ?: repository.activeAccountFlow.firstOrNull()
+            val channelChat = repository.getChatById(channelId)
+            val channelCustom = com.example.ui.channel.ChannelCustomizationManager.getCustomization(channelId)
+            val post = repository.getDecryptedMessageById(postId)
+            val senderId = active?.id?.ifBlank { "me" } ?: "me"
+
+            val channelMembers = repository.getGroupMembers(channelId).firstOrNull().orEmpty()
+            val canActAsChannel = postAsChannel && (
+                com.example.ui.channel.isChannelAdminOrCreator(channelMembers, active) ||
+                    (channelChat != null && active == null)
+                )
+
+            val resolvedName = if (canActAsChannel) {
+                channelChat?.title?.ifBlank { "Канал" } ?: "Канал"
+            } else {
+                active?.displayName?.ifBlank { active.username.ifBlank { "Вы" } } ?: "Вы"
+            }
+            val resolvedAvatar = if (canActAsChannel) channelCustom.avatarUrl else active?.profilePicUrl?.takeIf { it.isNotBlank() }
+
+            val linkedGroupId = channelChat?.linkedDiscussionGroupId?.takeIf { it.isNotBlank() }
+                ?: channelCustom.discussionChatId?.takeIf { it.isNotBlank() }
+
+            var mirroredGroupPostId: String? = null
+            var mirroredGroupReplyId: String? = null
+
+            if (linkedGroupId != null && post != null) {
+                val linkedGroup = repository.getChatById(linkedGroupId)
+                if (linkedGroup != null && linkedGroup.isGroup && !linkedGroup.isChannel) {
+                    mirroredGroupPostId = ensureMirroredGroupPost(channelId, channelChat, post, linkedGroupId)
+                    val replyTargetId = replyToComment?.mirroredGroupReplyId?.takeIf { it.isNotBlank() }
+                        ?: mirroredGroupPostId
+                    val replySnippet = replyToComment?.text?.takeIf { it.isNotBlank() }
+                        ?: post.text.ifBlank { "Публикация канала" }
+                    val groupReplyId = java.util.UUID.randomUUID().toString()
+                    val groupReplyMsg = Message(
+                        id = groupReplyId,
+                        chatId = linkedGroupId,
+                        senderId = senderId,
+                        text = signalProtocolManager.encryptMessage(cleanText),
+                        mediaPath = mediaPath,
+                        mediaType = mediaType,
+                        documentData = documentData,
+                        replyToMessageId = replyTargetId,
+                        replyToMessageText = replySnippet.take(90),
+                        timestamp = System.currentTimeMillis(),
+                        isDelivered = true,
+                        senderIdentityId = if (canActAsChannel) channelId else senderId,
+                        senderIdentityType = if (canActAsChannel) "CHANNEL" else "PERSONAL",
+                        senderDisplayName = resolvedName,
+                        senderAvatarUrl = resolvedAvatar,
+                        senderCustomTag = if (canActAsChannel) "канал" else null,
+                        senderEmojiStatus = if (canActAsChannel) channelCustom.emojiStatus else null
+                    )
+                    repository.insertMessageAndUpdateChat(groupReplyMsg, cleanText.ifBlank { "Вложение" }, resolvedName)
+                    mirroredGroupReplyId = groupReplyId
+                    com.example.ui.channel.ChannelDiscussionFirestoreSync.syncMirroredGroupMessage(
+                        groupId = linkedGroupId,
+                        message = groupReplyMsg,
+                        plainText = cleanText.ifBlank { "Вложение" }
+                    )
+                }
+            }
+
+            val comment = com.example.ui.channel.ChannelPostCommentEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                channelId = channelId,
+                postId = postId,
+                senderId = senderId,
+                senderName = resolvedName,
+                senderAvatarUrl = resolvedAvatar,
+                isChannelIdentity = canActAsChannel,
+                text = cleanText,
+                mediaPath = mediaPath,
+                mediaType = mediaType,
+                documentData = documentData,
+                replyToCommentId = replyToComment?.id,
+                replyToAuthorName = replyToComment?.senderName,
+                replyToSnippet = replyToComment?.text?.take(80),
+                mirroredGroupId = linkedGroupId,
+                mirroredGroupPostId = mirroredGroupPostId,
+                mirroredGroupReplyId = mirroredGroupReplyId,
+                timestamp = System.currentTimeMillis()
+            )
+            repository.insertPostComment(comment)
+            val totalCount = maxOf((post?.commentCount ?: 0) + 1, repository.getCommentCountSync(channelId, postId))
+            repository.updateMessageCommentCount(postId, totalCount)
+
+            com.example.ui.channel.ChannelDiscussionFirestoreSync.syncPostComment(
+                comment = comment,
+                updatedCommentCount = totalCount,
+                mirroredGroupPostId = mirroredGroupPostId
+            )
+
+            if (onComplete != null) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onComplete(true)
+                }
+            }
         }
     }
 }

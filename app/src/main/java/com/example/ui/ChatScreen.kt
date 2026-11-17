@@ -403,6 +403,12 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
         viewModel.markMessagesAsRead(chatId, activeAccount?.id ?: "")
     }
 
+    LaunchedEffect(chatId, chat.isChannel) {
+        if (chat.isChannel) {
+            viewModel.observeChannelDiscussionSync(chatId).collect { }
+        }
+    }
+
     BackHandler(enabled = isSelectionMode || isSearchMode || showMediaPanel) {
         if (isSelectionMode) {
             selectedMessageIds = emptySet()
@@ -428,19 +434,32 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     val isChannelOrGroupAdmin = com.example.ui.channel.isChannelAdminOrCreator(groupMembers, activeAccount)
     val isCopyingRestricted = chat.isChannel && channelCustomization.restrictSavingContent && !isChannelOrGroupAdmin
     val currentChannelMember = com.example.ui.channel.findCurrentChannelMember(groupMembers, activeAccount)
-    val linkedDiscussionGroup = remember(chat.isChannel, channelCustomization.discussionChatId, chats) {
+    val linkedDiscussionGroupId = remember(chat.isChannel, chat.linkedDiscussionGroupId, channelCustomization.discussionChatId) {
         if (chat.isChannel) {
-            channelCustomization.discussionChatId?.let { linkedId ->
-                chats.find { it.id == linkedId && it.isGroup }
-            }
+            chat.linkedDiscussionGroupId?.takeIf { it.isNotBlank() }
+                ?: channelCustomization.discussionChatId?.takeIf { it.isNotBlank() }
         } else null
     }
-    val linkedDiscussionGroupCustom = linkedDiscussionGroup?.id?.let { allCustomizationsMap[it] }
-    val parentLinkedChannelCustom = remember(chat.isGroup, chatId, allCustomizationsMap) {
-        if (chat.isGroup) allCustomizationsMap.values.firstOrNull { it.discussionChatId == chatId } else null
+    val linkedDiscussionGroup = remember(chat.isChannel, linkedDiscussionGroupId, chats) {
+        if (chat.isChannel && linkedDiscussionGroupId != null) {
+            chats.find { it.id == linkedDiscussionGroupId && it.isGroup }
+        } else null
     }
-    val parentLinkedChannel = remember(parentLinkedChannelCustom, chats) {
-        parentLinkedChannelCustom?.let { custom -> chats.find { it.id == custom.chatId && it.isChannel } }
+    val postCommentCounts by if (chat.isChannel) {
+        viewModel.observeChannelPostCommentCounts(chatId).collectAsStateWithLifecycle(initialValue = emptyMap())
+    } else {
+        remember { mutableStateOf(emptyMap()) }
+    }
+    val linkedDiscussionGroupCustom = linkedDiscussionGroup?.id?.let { allCustomizationsMap[it] }
+    val parentLinkedChannelCustom = remember(chat.isGroup, chat.linkedChannelId, chatId, allCustomizationsMap) {
+        if (chat.isGroup) {
+            allCustomizationsMap.values.firstOrNull { it.discussionChatId == chatId }
+                ?: chat.linkedChannelId?.let { allCustomizationsMap[it] }
+        } else null
+    }
+    val parentLinkedChannel = remember(parentLinkedChannelCustom, chat.linkedChannelId, chats) {
+        val targetId = parentLinkedChannelCustom?.chatId ?: chat.linkedChannelId
+        targetId?.let { cid -> chats.find { it.id == cid && it.isChannel } }
     }
     val availableSendAsIdentities by viewModel.observeAvailableSendAsIdentities(chatId)
         .collectAsStateWithLifecycle(initialValue = emptyList())
@@ -728,20 +747,6 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     }
                 },
                 actions = {
-                    if (chat.isChannel && linkedDiscussionGroup != null) {
-                        com.example.ui.channel.LinkedGroupAvatar(
-                            groupId = linkedDiscussionGroup.id,
-                            groupTitle = linkedDiscussionGroup.title,
-                            avatarUrl = linkedDiscussionGroupCustom?.avatarUrl,
-                            avatarSize = 34.dp,
-                            testTag = "channel_topbar_linked_group_avatar",
-                            onClick = {
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                                navController.navigate("chat/${linkedDiscussionGroup.id}")
-                            }
-                        )
-                    }
                     if (!chat.isBot && !chat.isGroup && !chat.isChannel) {
                         IconButton(onClick = { navController.navigate("call/${chat.id}?isVideo=false") }) {
                             Icon(Icons.Filled.Call, contentDescription = "Голосовой звонок")
@@ -2817,19 +2822,114 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     }
                 }
             }
-            if (chat.pinnedMessageId != null) {
-                val pinnedMessage = messages.find { it.id == chat.pinnedMessageId }
-                if (pinnedMessage != null) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.8f), 
-                        modifier = Modifier.fillMaxWidth()
+            val pinnedMessagesList = remember(messages, chat.pinnedMessageId) {
+                val explicitPinned = messages.filter { it.isPinned }.sortedByDescending { it.timestamp }
+                if (explicitPinned.isNotEmpty()) {
+                    explicitPinned
+                } else {
+                    chat.pinnedMessageId?.let { pid -> messages.find { it.id == pid } }?.let { listOf(it) }.orEmpty()
+                }
+            }
+            var activePinnedIndex by remember(chatId, pinnedMessagesList.size) { mutableIntStateOf(0) }
+            var showPinnedMessagesSheet by remember { mutableStateOf(false) }
+            val displayedPinnedMessage = pinnedMessagesList.getOrNull(
+                activePinnedIndex.coerceIn(0, (pinnedMessagesList.size - 1).coerceAtLeast(0))
+            )
+            val scrollToMessage: (String) -> Unit = { targetId ->
+                val msgIndex = filteredMessages.indexOfFirst { it.id == targetId }
+                if (msgIndex >= 0) {
+                    val headerOffset = if (hasMoreMessages && !isSearchMode) 1 else 0
+                    coroutineScope.launch {
+                        listState.animateScrollToItem(msgIndex + headerOffset)
+                    }
+                }
+            }
+
+            if (showPinnedMessagesSheet && pinnedMessagesList.isNotEmpty()) {
+                ModalBottomSheet(
+                    onDismissRequest = { showPinnedMessagesSheet = false },
+                    containerColor = Color(0xFF171C26)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(bottom = 16.dp)
                     ) {
-                        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.PushPin, contentDescription = "Pinned", tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text("Pinned Message", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                Text(pinnedMessage.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = "Закреплённые сообщения (${pinnedMessagesList.size})",
+                            color = Color.White,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            fontSize = 17.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                        )
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                        LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                            items(pinnedMessagesList, key = { "pin_sheet_${it.id}" }) { pinnedItem ->
+                                val thumbItem = remember(pinnedItem) {
+                                    extractLightboxMediaItem(pinnedItem, chat.title, isMe = false)
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 56.dp)
+                                        .clickable {
+                                            showPinnedMessagesSheet = false
+                                            val clickedIdx = pinnedMessagesList.indexOfFirst { it.id == pinnedItem.id }
+                                            if (clickedIdx >= 0) activePinnedIndex = clickedIdx
+                                            scrollToMessage(pinnedItem.id)
+                                        }
+                                        .padding(horizontal = 18.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (thumbItem != null) {
+                                        coil.compose.AsyncImage(
+                                            model = coil.request.ImageRequest.Builder(context)
+                                                .data(thumbItem.imageUrl)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = "Миниатюра закреплённого поста",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Filled.PushPin,
+                                            contentDescription = null,
+                                            tint = Color(0xFFA78BFA),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = pinnedItem.senderDisplayName?.takeIf { it.isNotBlank() } ?: chat.title,
+                                            color = Color(0xFFA78BFA),
+                                            fontSize = 13.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = pinnedItem.text.ifBlank { "📷 Публикация" },
+                                            color = Color.White.copy(alpha = 0.88f),
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = formatTime(pinnedItem.timestamp),
+                                        color = Color.White.copy(alpha = 0.55f),
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
                         }
                     }
@@ -2946,7 +3046,10 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp),
+                    contentPadding = PaddingValues(
+                        top = if (displayedPinnedMessage != null) 66.dp else 8.dp,
+                        bottom = 8.dp
+                    ),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     reverseLayout = false
                 ) {
@@ -3210,6 +3313,10 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                         modifier = Modifier.padding(vertical = 4.dp)
                                     )
                                 } else {
+                                    val resolvedCommentCount = maxOf(
+                                        message.commentCount,
+                                        postCommentCounts[message.id] ?: 0
+                                    )
                                     MessageBubble(
                                         senderName = senderName,
                                         senderStatus = senderStatus,
@@ -3222,6 +3329,18 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                         largeEmojiEnabled = largeEmojiEnabled,
                                         channelAccentScheme = if (chat.isChannel) channelMessageScheme else null,
                                         channelBgEmoji = if (chat.isChannel) channelCustomization.messageEmojiPattern else null,
+                                        showChannelCommentFooter = chat.isChannel && !linkedDiscussionGroupId.isNullOrBlank(),
+                                        commentCount = resolvedCommentCount,
+                                        onCommentClick = {
+                                            focusManager.clearFocus()
+                                            keyboardController?.hide()
+                                            navController.navigateSafe(
+                                                com.example.ui.navigation.AppDestinations.channelPostComments(chatId, message.id)
+                                            )
+                                        },
+                                        onReplyQuoteClick = message.replyToMessageId?.let { replyId ->
+                                            { scrollToMessage(replyId) }
+                                        },
                                         message = message, 
                                         isMe = isMe,
                                         onClick = {
@@ -3395,6 +3514,108 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     ) {
                         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Scroll to bottom")
+                    }
+                }
+
+                // Telegram-style floating top pinned message pill ("пузырь сверху")
+                if (displayedPinnedMessage != null) {
+                    val pinnedThumbItem = remember(displayedPinnedMessage) {
+                        extractLightboxMediaItem(displayedPinnedMessage, chat.title, isMe = false)
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .clickable {
+                                scrollToMessage(displayedPinnedMessage.id)
+                                if (pinnedMessagesList.size > 1) {
+                                    activePinnedIndex = (activePinnedIndex + 1) % pinnedMessagesList.size
+                                }
+                            }
+                            .testTag("chat_pinned_post_banner"),
+                        shape = RoundedCornerShape(22.dp),
+                        color = Color(0xFF1A1F2B).copy(alpha = 0.92f),
+                        border = BorderStroke(0.75.dp, Color.White.copy(alpha = 0.09f)),
+                        shadowElevation = 6.dp,
+                        tonalElevation = 4.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (pinnedThumbItem != null) {
+                                coil.compose.AsyncImage(
+                                    model = coil.request.ImageRequest.Builder(context)
+                                        .data(pinnedThumbItem.imageUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Миниатюра закреплённого сообщения",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                )
+                                Spacer(Modifier.width(10.dp))
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .width(3.dp)
+                                        .height(28.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color(0xFFA78BFA))
+                                )
+                                Spacer(Modifier.width(10.dp))
+                            }
+
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 4.dp)
+                            ) {
+                                Text(
+                                    text = "Закреплённое сообщение",
+                                    color = Color(0xFFA78BFA),
+                                    fontSize = 13.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = displayedPinnedMessage.text.ifBlank { "📷 Публикация" },
+                                    color = Color.White.copy(alpha = 0.88f),
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    if (pinnedMessagesList.size > 1) {
+                                        showPinnedMessagesSheet = true
+                                    } else {
+                                        scrollToMessage(displayedPinnedMessage.id)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .testTag("chat_pinned_list_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (pinnedMessagesList.size > 1) Icons.AutoMirrored.Filled.FormatListBulleted else Icons.Filled.PushPin,
+                                    contentDescription = "Закреплённые сообщения",
+                                    tint = Color.White.copy(alpha = 0.72f),
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
                     }
                 }
                 }
@@ -4825,6 +5046,10 @@ fun MessageBubble(
     largeEmojiEnabled: Boolean = true,
     channelAccentScheme: com.example.ui.channel.MessageColorScheme? = null,
     channelBgEmoji: String? = null,
+    showChannelCommentFooter: Boolean = false,
+    commentCount: Int = 0,
+    onCommentClick: (() -> Unit)? = null,
+    onReplyQuoteClick: (() -> Unit)? = null,
     onClick: () -> Unit, 
     onLongClick3s: () -> Unit, 
     onDoubleClick: (() -> Unit)? = null,
@@ -5117,8 +5342,12 @@ fun MessageBubble(
                         }
                     }
                 }
-                // Telegram-style Forwarded Message Header
-                if (message.isForwarded && !message.forwardHideSender && !message.forwardOriginalSenderName.isNullOrBlank()) {
+                // Telegram-style Forwarded Message Header (suppressed for channel-authored discussion posts)
+                val isChannelAuthoredMirror = isGroupChat &&
+                    message.senderIdentityType == "CHANNEL" &&
+                    !message.forwardOriginalSenderId.isNullOrBlank() &&
+                    message.forwardOriginalSenderId == message.senderIdentityId
+                if (message.isForwarded && !isChannelAuthoredMirror && !message.forwardHideSender && !message.forwardOriginalSenderName.isNullOrBlank()) {
                     val authorId = message.forwardOriginalSenderId?.takeIf { it.isNotBlank() } ?: message.chatId
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -5187,6 +5416,12 @@ fun MessageBubble(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 6.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .then(
+                                if (onReplyQuoteClick != null) {
+                                    Modifier.clickable(onClick = onReplyQuoteClick)
+                                } else Modifier
+                            )
                     ) {
                         Row(
                             modifier = Modifier
@@ -5474,10 +5709,35 @@ fun MessageBubble(
                 
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.End)) {
+                    val metaTint = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    if (message.senderIdentityType == "CHANNEL") {
+                        Icon(
+                            imageVector = Icons.Outlined.Visibility,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = metaTint
+                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            text = "${maxOf(1, message.commentCount + 1)}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = metaTint
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    if (message.isPinned) {
+                        Icon(
+                            imageVector = Icons.Filled.PushPin,
+                            contentDescription = "Закреплено",
+                            modifier = Modifier.size(12.dp),
+                            tint = metaTint
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
                     Text(
                         formatTime(message.timestamp), 
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), 
-                        color = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha=0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.7f)
+                        color = metaTint
                     )
                     if (message.expiresAt != null) {
                         Spacer(Modifier.width(4.dp))
@@ -5492,6 +5752,48 @@ fun MessageBubble(
                         } else {
                             Icon(Icons.Filled.Schedule, contentDescription = "В очереди", modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onPrimary.copy(alpha=0.7f))
                         }
+                    }
+                }
+
+                if (showChannelCommentFooter && onCommentClick != null) {
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(
+                        color = (if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.16f)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
+                            .clickable(onClick = onCommentClick)
+                            .padding(top = 6.dp, bottom = 2.dp)
+                            .testTag("post_comment_footer_${message.id}"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val footerTint = channelAccentScheme?.accentColor
+                            ?: if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+                        Icon(
+                            imageVector = Icons.Outlined.ChatBubbleOutline,
+                            contentDescription = "Прокомментировать",
+                            tint = footerTint,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = com.example.ui.channel.formatCommentsFooterLabel(commentCount),
+                            color = footerTint,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = Icons.Filled.ChevronRight,
+                            contentDescription = null,
+                            tint = footerTint,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }

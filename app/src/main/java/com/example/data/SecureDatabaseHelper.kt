@@ -37,7 +37,7 @@ class SecureDatabaseHelper private constructor(context: Context) {
                 openHelperFactory(sqlCipherFactory)
             }
         }
-        .addMigrations(MIGRATION_26_27, MIGRATION_27_28)
+        .addMigrations(MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29)
         .fallbackToDestructiveMigration()
         .build()
     }
@@ -123,6 +123,42 @@ class SecureDatabaseHelper private constructor(context: Context) {
                 db.execSQL("ALTER TABLE `messages` ADD COLUMN `senderAvatarUrl` TEXT")
                 db.execSQL("ALTER TABLE `messages` ADD COLUMN `senderCustomTag` TEXT")
                 db.execSQL("ALTER TABLE `messages` ADD COLUMN `senderEmojiStatus` TEXT")
+            }
+        }
+
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `chats` ADD COLUMN `linkedDiscussionGroupId` TEXT")
+                db.execSQL("ALTER TABLE `chats` ADD COLUMN `linkedChannelId` TEXT")
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `commentCount` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `mirroredGroupMessageId` TEXT")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `channel_post_comments` (
+                        `id` TEXT NOT NULL,
+                        `channelId` TEXT NOT NULL,
+                        `postId` TEXT NOT NULL,
+                        `senderId` TEXT NOT NULL,
+                        `senderName` TEXT NOT NULL,
+                        `senderAvatarUrl` TEXT,
+                        `isChannelIdentity` INTEGER NOT NULL,
+                        `text` TEXT NOT NULL,
+                        `mediaPath` TEXT,
+                        `mediaType` TEXT,
+                        `documentData` TEXT,
+                        `replyToCommentId` TEXT,
+                        `replyToAuthorName` TEXT,
+                        `replyToSnippet` TEXT,
+                        `mirroredGroupId` TEXT,
+                        `mirroredGroupPostId` TEXT,
+                        `mirroredGroupReplyId` TEXT,
+                        `timestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_channel_post_comments_channelId` ON `channel_post_comments` (`channelId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_channel_post_comments_postId` ON `channel_post_comments` (`postId`)")
             }
         }
 

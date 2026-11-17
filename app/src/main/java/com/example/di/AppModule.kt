@@ -80,6 +80,7 @@ val databaseModule = module {
     single { get<AppDatabase>().groupInviteLinkDao() }
     single { get<AppDatabase>().groupJoinRequestDao() }
     single { get<AppDatabase>().userPrivacyRuleDao() }
+    single { get<AppDatabase>().channelPostCommentDao() }
 
     // Central Data Repository
     single<MessengerRepository> {
@@ -97,7 +98,8 @@ val databaseModule = module {
             webSocketManager = get(),
             groupInviteLinkDao = get(),
             groupJoinRequestDao = get(),
-            userPrivacyRuleDao = get()
+            userPrivacyRuleDao = get(),
+            channelPostCommentDao = get()
         )
     }
 }
