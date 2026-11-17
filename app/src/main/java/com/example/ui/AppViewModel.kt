@@ -3621,4 +3621,263 @@ class AppViewModel(
             }
         }
     }
+
+    fun sendChannelDirectMessage(
+        channelId: String,
+        subscriberId: String,
+        subscriberName: String,
+        subscriberAvatar: String?,
+        senderId: String,
+        text: String,
+        mediaPath: String? = null,
+        mediaType: String? = null,
+        documentData: String? = null
+    ) {
+        viewModelScope.launch {
+            val threadId = com.example.ui.channel.ChannelDirectMessageManager.buildThreadId(channelId, subscriberId)
+            val sanitizedText = MessageSanitizer.sanitize(text)
+            val encryptedMsg = signalProtocolManager.encryptMessage(sanitizedText)
+            val activeAcc = activeAccount.value
+            val msg = Message(
+                id = java.util.UUID.randomUUID().toString(),
+                chatId = threadId,
+                senderId = senderId.ifBlank { activeAcc?.id ?: "me" },
+                text = encryptedMsg,
+                timestamp = System.currentTimeMillis(),
+                isDelivered = true,
+                mediaPath = mediaPath,
+                mediaType = mediaType,
+                documentData = documentData,
+                senderDisplayName = activeAcc?.displayName?.takeIf { it.isNotBlank() } ?: subscriberName,
+                senderAvatarUrl = activeAcc?.profilePicUrl?.takeIf { it.isNotBlank() } ?: subscriberAvatar
+            )
+            repository.insertMessage(msg)
+            val preview = sanitizedText.ifBlank {
+                when (mediaType) {
+                    "gif" -> "GIF"
+                    "sticker" -> "Стикер"
+                    else -> "Медиа"
+                }
+            }
+            com.example.ui.channel.ChannelDirectMessageManager.recordThreadActivity(
+                channelId = channelId,
+                subscriberId = subscriberId,
+                subscriberName = subscriberName,
+                subscriberAvatar = subscriberAvatar,
+                lastPreview = preview,
+                pendingDelta = 0
+            )
+        }
+    }
+
+    fun submitSuggestedPost(
+        channelId: String,
+        subscriberId: String,
+        subscriberName: String,
+        subscriberAvatar: String?,
+        postText: String,
+        mediaPath: String? = null,
+        mediaType: String? = null,
+        priceStars: Long,
+        scheduledTimestamp: Long?,
+        scheduledLabel: String,
+        onSuccess: () -> Unit,
+        onInsufficientBalance: (Long, Long) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val resolvedSubId = subscriberId.ifBlank { activeAccount.value?.id ?: "me" }
+            val resolvedSubName = subscriberName.ifBlank { activeAccount.value?.displayName ?: "Вы" }
+            val payload = com.example.ui.channel.SuggestedPostPayload(
+                channelId = channelId,
+                subscriberId = resolvedSubId,
+                subscriberName = resolvedSubName,
+                text = postText.ifBlank { "Предложенный пост для канала" },
+                mediaPath = mediaPath,
+                mediaType = mediaType,
+                priceStars = priceStars.coerceAtLeast(0L),
+                approxUsdText = com.example.ui.channel.SuggestedPostPayload.formatApproxUsd(priceStars),
+                scheduledTimestamp = scheduledTimestamp,
+                scheduledLabel = scheduledLabel.ifBlank { "Любое" },
+                status = com.example.ui.channel.SuggestedPostStatus.PENDING
+            )
+
+            if (payload.priceStars > 0L) {
+                val currentBalance = com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.currentUserState.value?.balance ?: 0L
+                if (currentBalance < payload.priceStars) {
+                    onInsufficientBalance(currentBalance, payload.priceStars)
+                    return@launch
+                }
+                val escrowResult = com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.processSuggestedPostEscrow(
+                    senderUserId = resolvedSubId,
+                    channelId = channelId,
+                    priceStars = payload.priceStars,
+                    proposalId = payload.proposalId
+                )
+                if (escrowResult.isFailure) {
+                    val err = escrowResult.exceptionOrNull()
+                    if (err is com.example.data.ecosystem.InsufficientBalanceException) {
+                        val updatedCur = com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.currentUserState.value?.balance ?: 0L
+                        onInsufficientBalance(updatedCur, payload.priceStars)
+                    } else {
+                        onError(err?.message ?: "Не удалось зарезервировать звёзды")
+                    }
+                    return@launch
+                }
+            }
+
+            val threadId = com.example.ui.channel.ChannelDirectMessageManager.buildThreadId(channelId, resolvedSubId)
+            val sanitizedText = MessageSanitizer.sanitize(payload.text)
+            val encryptedMsg = signalProtocolManager.encryptMessage(sanitizedText)
+            val activeAcc = activeAccount.value
+            val msg = Message(
+                id = java.util.UUID.randomUUID().toString(),
+                chatId = threadId,
+                senderId = resolvedSubId,
+                text = encryptedMsg,
+                timestamp = System.currentTimeMillis(),
+                isDelivered = true,
+                mediaPath = mediaPath,
+                mediaType = mediaType,
+                documentData = payload.toJsonString(),
+                senderDisplayName = activeAcc?.displayName?.takeIf { it.isNotBlank() } ?: resolvedSubName,
+                senderAvatarUrl = activeAcc?.profilePicUrl?.takeIf { it.isNotBlank() } ?: subscriberAvatar
+            )
+            repository.insertMessage(msg)
+
+            val priceBadge = if (payload.priceStars > 0L) "⭐ ${payload.priceStars}" else "Бесплатно"
+            com.example.ui.channel.ChannelDirectMessageManager.recordThreadActivity(
+                channelId = channelId,
+                subscriberId = resolvedSubId,
+                subscriberName = resolvedSubName,
+                subscriberAvatar = subscriberAvatar,
+                lastPreview = "Предложенный пост ($priceBadge)",
+                pendingDelta = 1
+            )
+            onSuccess()
+        }
+    }
+
+    fun acceptSuggestedPost(
+        context: android.content.Context,
+        dmThreadId: String,
+        message: Message,
+        scheduleForRequestedTime: Boolean
+    ) {
+        viewModelScope.launch {
+            val payload = com.example.ui.channel.SuggestedPostPayload.fromJson(message.documentData) ?: return@launch
+            if (payload.status != com.example.ui.channel.SuggestedPostStatus.PENDING) return@launch
+
+            val activeAcc = activeAccount.value
+            val ownerId = activeAcc?.id ?: "me"
+            val now = System.currentTimeMillis()
+            val shouldSchedule = scheduleForRequestedTime &&
+                payload.scheduledTimestamp != null &&
+                payload.scheduledTimestamp > now
+
+            val nextStatus = if (shouldSchedule) {
+                com.example.ui.channel.SuggestedPostStatus.SCHEDULED
+            } else {
+                com.example.ui.channel.SuggestedPostStatus.ACCEPTED
+            }
+
+            val updatedPayload = payload.copy(status = nextStatus)
+            val updatedMsg = message.copy(documentData = updatedPayload.toJsonString())
+            repository.updateMessageEncrypted(updatedMsg)
+
+            if (payload.priceStars > 0L) {
+                com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.creditChannelOwnerSuggestedPost(
+                    ownerUserId = ownerId,
+                    channelId = payload.channelId,
+                    priceStars = payload.priceStars,
+                    proposalId = payload.proposalId
+                )
+            }
+
+            if (shouldSchedule && payload.scheduledTimestamp != null) {
+                val delayMs = (payload.scheduledTimestamp - now).coerceAtLeast(1000L)
+                val data = androidx.work.workDataOf(
+                    "text" to payload.text,
+                    "chatId" to payload.channelId,
+                    "senderId" to ownerId
+                )
+                val workRequest = androidx.work.OneTimeWorkRequestBuilder<ScheduledMessageWorker>()
+                    .setInitialDelay(delayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    .setInputData(data)
+                    .build()
+                androidx.work.WorkManager.getInstance(context.applicationContext).enqueue(workRequest)
+            } else {
+                sendMessage(
+                    chatId = payload.channelId,
+                    senderId = ownerId,
+                    text = payload.text,
+                    mediaPath = payload.mediaPath,
+                    mediaType = payload.mediaType
+                )
+            }
+
+            com.example.ui.channel.ChannelDirectMessageManager.adjustPendingCount(payload.channelId, dmThreadId, -1)
+            com.example.ui.channel.ChannelCustomizationManager.recordAdminLog(
+                chatId = payload.channelId,
+                title = if (shouldSchedule) "Запланирован предложенный пост" else "Опубликован предложенный пост",
+                details = "От ${payload.subscriberName} (${if (payload.priceStars > 0) "⭐ ${payload.priceStars}" else "Бесплатно"})"
+            )
+        }
+    }
+
+    fun declineSuggestedPost(
+        dmThreadId: String,
+        message: Message
+    ) {
+        viewModelScope.launch {
+            val payload = com.example.ui.channel.SuggestedPostPayload.fromJson(message.documentData) ?: return@launch
+            if (payload.status != com.example.ui.channel.SuggestedPostStatus.PENDING) return@launch
+
+            if (payload.priceStars > 0L) {
+                com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.refundSuggestedPostEscrow(
+                    subscriberId = payload.subscriberId,
+                    channelId = payload.channelId,
+                    priceStars = payload.priceStars,
+                    proposalId = payload.proposalId
+                )
+            }
+
+            val updatedPayload = payload.copy(status = com.example.ui.channel.SuggestedPostStatus.DECLINED)
+            val updatedMsg = message.copy(documentData = updatedPayload.toJsonString())
+            repository.updateMessageEncrypted(updatedMsg)
+
+            com.example.ui.channel.ChannelDirectMessageManager.adjustPendingCount(payload.channelId, dmThreadId, -1)
+            com.example.ui.channel.ChannelCustomizationManager.recordAdminLog(
+                chatId = payload.channelId,
+                title = "Отклонён предложенный пост",
+                details = "От ${payload.subscriberName} (${if (payload.priceStars > 0) "Возвращено ⭐ ${payload.priceStars}" else "Бесплатно"})"
+            )
+        }
+    }
+
+    fun clearChannelDirectMessages(channelId: String, threadId: String) {
+        viewModelScope.launch {
+            val list = repository.getMessages(threadId).firstOrNull() ?: emptyList()
+            list.forEach { msg ->
+                repository.deleteMessage(msg.id)
+            }
+            com.example.ui.channel.ChannelDirectMessageManager.clearThreadSummary(channelId, threadId)
+        }
+    }
+
+    fun purchaseStarsBundle(
+        amount: Long,
+        packageId: String,
+        onResult: (Result<Long>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val userId = activeAccount.value?.id ?: "me"
+            val result = com.example.data.ecosystem.KuoteXEcosystemFirestoreManager.purchaseStarsBundle(
+                userId = userId,
+                amount = amount,
+                packageId = packageId
+            )
+            onResult(result)
+        }
+    }
 }

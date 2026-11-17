@@ -28,9 +28,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LockOpen
@@ -57,6 +59,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -76,6 +79,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.ui.AppViewModel
+import com.example.ui.navigateSafe
+import com.example.ui.navigation.AppDestinations
 import com.example.ui.popBackStackSafe
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -598,6 +603,15 @@ fun ChannelDirectMessagesScreen(
     val context = LocalContext.current
     val customizationsMap by ChannelCustomizationManager.getCustomizationFlow(chatId).collectAsState()
     val customization = customizationsMap[chatId] ?: ChannelCustomization(chatId = chatId)
+    val dmThreadsMap by ChannelDirectMessageManager.threadsByChannel.collectAsState()
+
+    LaunchedEffect(context) {
+        ChannelDirectMessageManager.init(context)
+    }
+
+    val pendingTotal = remember(dmThreadsMap, chatId) {
+        dmThreadsMap[chatId].orEmpty().sumOf { it.pendingSuggestionsCount }
+    }
 
     var dmEnabled by remember(chatId) { mutableStateOf(customization.directMessagesEnabled) }
     var starPrice by remember(chatId) { mutableFloatStateOf(customization.directMessageStarPrice.toFloat().coerceIn(0f, 100f)) }
@@ -754,6 +768,72 @@ fun ChannelDirectMessagesScreen(
                             }
                             Icon(Icons.Filled.ContentCopy, contentDescription = "Копировать", tint = TelegramAdminCaptionColor, modifier = Modifier.size(18.dp))
                         }
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    onClick = { navController.navigateSafe(AppDestinations.channelAdminDmInbox(chatId)) },
+                    shape = RoundedCornerShape(16.dp),
+                    color = TelegramAdminCardBg,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("open_admin_dm_inbox_button")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Forum,
+                            contentDescription = null,
+                            tint = TelegramAdminPurple,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Открыть входящие сообщения",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (pendingTotal > 0) "Ожидают ответа: $pendingTotal предлож." else "Диалоги с подписчиками и предложенные посты",
+                                color = TelegramAdminCaptionColor,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (pendingTotal > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(end = 8.dp)
+                                    .clip(CircleShape)
+                                    .background(TelegramAdminPurpleStrong)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$pendingTotal",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = TelegramAdminCaptionColor,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }

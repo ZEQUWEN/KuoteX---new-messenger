@@ -1,5 +1,7 @@
 package com.example.data.ecosystem
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.example.ui.gifts.CollectibleGift
 import com.example.ui.gifts.CurrencyType
@@ -46,13 +48,48 @@ object KuoteXEcosystemFirestoreManager {
     private const val COLLECTION_LEDGER_TX = "ledger_transactions"
     private const val COLLECTION_IDEMPOTENCY = "idempotency_keys"
     private const val COLLECTION_POLL_VOTES = "poll_votes"
+    private const val STARS_CACHE_PREFS = "kuotex_stars_balance_prefs"
+    private const val KEY_CACHED_BALANCE_PREFIX = "stars_balance_"
 
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var starsCachePrefs: SharedPreferences? = null
 
     // Local in-memory caching fallback for offline & fast UI rendering
     private val _currentUserState = MutableStateFlow<KuoteXUserDoc?>(null)
     val currentUserState: StateFlow<KuoteXUserDoc?> = _currentUserState.asStateFlow()
+
+    fun initLocalBalanceCache(context: Context) {
+        if (starsCachePrefs == null) {
+            starsCachePrefs = context.applicationContext.getSharedPreferences(STARS_CACHE_PREFS, Context.MODE_PRIVATE)
+        }
+    }
+
+    private fun readCachedBalance(userId: String): Long? {
+        val prefs = starsCachePrefs ?: return null
+        val key = "$KEY_CACHED_BALANCE_PREFIX$userId"
+        return if (prefs.contains(key)) prefs.getLong(key, 1000L) else null
+    }
+
+    private fun saveCachedBalance(userId: String, balance: Long) {
+        starsCachePrefs?.edit()?.putLong("$KEY_CACHED_BALANCE_PREFIX$userId", balance.coerceAtLeast(0L))?.apply()
+    }
+
+    fun ensureUserStateLoaded(userId: String, username: String = "user", displayName: String = "User") {
+        val resolvedId = userId.ifBlank { "me" }
+        val existing = _currentUserState.value
+        if (existing != null && existing.userId == resolvedId) return
+        val cachedBal = readCachedBalance(resolvedId) ?: 1000L
+        _currentUserState.value = KuoteXUserDoc(
+            userId = resolvedId,
+            username = username.ifBlank { "user" },
+            displayName = displayName.ifBlank { "User" },
+            balance = cachedBal
+        )
+        managerScope.launch {
+            syncAndObserveUser(resolvedId, username.ifBlank { "user" }, displayName.ifBlank { "User" })
+        }
+    }
 
     private val _catalogGifts = MutableStateFlow<List<KuoteXCatalogGiftDoc>>(emptyList())
     val catalogGifts: StateFlow<List<KuoteXCatalogGiftDoc>> = _catalogGifts.asStateFlow()
@@ -1435,5 +1472,235 @@ Result.failure(PaymentOutcomeUnknown(providerTxId, "Не удалось связ
                 trySend(doc)
             }
         awaitClose { listener.remove() }
+    }
+
+    /**
+     * Purchases a Stars bundle via atomic top-up, with local cached fallback when backend is offline/unauthenticated.
+     */
+    suspend fun purchaseStarsBundle(
+        userId: String,
+        amount: Long,
+        packageId: String
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        val resolvedId = userId.ifBlank { "me" }
+        val providerTxId = "bundle_${packageId}_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
+        val remoteResult = topUpUserBalanceAtomic(resolvedId, amount, providerTxId)
+        if (remoteResult.isSuccess) {
+            val newBal = remoteResult.getOrThrow()
+            saveCachedBalance(resolvedId, newBal)
+            return@withContext Result.success(newBal)
+        }
+        val err = remoteResult.exceptionOrNull()
+        if (err is DuplicateTransactionException) {
+            return@withContext Result.failure(err)
+        }
+        val currentBal = _currentUserState.value?.balance ?: readCachedBalance(resolvedId) ?: 1000L
+        val updatedBal = (currentBal + amount).coerceAtLeast(0L)
+        saveCachedBalance(resolvedId, updatedBal)
+        _currentUserState.update { curr ->
+            curr?.copy(balance = updatedBal, updatedAt = System.currentTimeMillis())
+                ?: KuoteXUserDoc(userId = resolvedId, username = "user", displayName = "User", balance = updatedBal)
+        }
+        Result.success(updatedBal)
+    }
+
+    /**
+     * Escrows Stars from a subscriber when proposing a paid Suggested Post.
+     */
+    suspend fun processSuggestedPostEscrow(
+        senderUserId: String,
+        channelId: String,
+        priceStars: Long,
+        proposalId: String
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        val resolvedId = senderUserId.ifBlank { "me" }
+        if (priceStars <= 0L) {
+            val cur = _currentUserState.value?.balance ?: readCachedBalance(resolvedId) ?: 1000L
+            return@withContext Result.success(cur)
+        }
+        val txId = "sp_escrow_${proposalId}_${System.currentTimeMillis()}"
+        val now = System.currentTimeMillis()
+        try {
+            val newBalance = firestore.runTransaction { transaction ->
+                val idemRef = firestore.collection(COLLECTION_IDEMPOTENCY).document("escrow_$proposalId")
+                if (transaction.get(idemRef).exists()) {
+                    throw DuplicateTransactionException("Suggested post $proposalId already escrowed")
+                }
+                val userRef = firestore.collection(COLLECTION_USERS).document(resolvedId)
+                val ledgerRef = firestore.collection(COLLECTION_LEDGER_TX).document(txId)
+                val userSnap = transaction.get(userRef)
+                val currentBalance = userSnap.getLong("balance") ?: (_currentUserState.value?.balance ?: readCachedBalance(resolvedId) ?: 1000L)
+                if (currentBalance < priceStars) {
+                    throw InsufficientBalanceException("Недостаточно звёзд ($currentBalance < $priceStars)")
+                }
+                val updatedBalance = currentBalance - priceStars
+                transaction.update(userRef, mapOf("balance" to updatedBalance, "updated_at" to now))
+                transaction.set(
+                    ledgerRef,
+                    KuoteXLedgerTxDoc(
+                        txId = txId,
+                        idempotencyKey = "escrow_$proposalId",
+                        type = LedgerTransactionType.DIRECT_MESSAGE_STAR.value,
+                        fromUserId = resolvedId,
+                        toUserId = "escrow_channel_$channelId",
+                        amount = priceStars,
+                        status = LedgerTransactionStatus.PENDING.value,
+                        metadata = mapOf("channel_id" to channelId, "proposal_id" to proposalId),
+                        createdAt = now
+                    )
+                )
+                transaction.set(idemRef, mapOf("tx_id" to txId, "created_at" to now))
+                updatedBalance
+            }.await()
+
+            saveCachedBalance(resolvedId, newBalance)
+            _currentUserState.update { curr ->
+                curr?.copy(balance = newBalance, updatedAt = now)
+                    ?: KuoteXUserDoc(userId = resolvedId, username = "user", displayName = "User", balance = newBalance)
+            }
+            com.example.ui.rating.UserRatingManager.recordMarketOrPaidAction(resolvedId, priceStars.toInt())
+            Result.success(newBalance)
+        } catch (e: Exception) {
+            if (e is InsufficientBalanceException || e is DuplicateTransactionException) {
+                return@withContext Result.failure(e)
+            }
+            val currentBalance = _currentUserState.value?.balance ?: readCachedBalance(resolvedId) ?: 1000L
+            if (currentBalance < priceStars) {
+                return@withContext Result.failure(InsufficientBalanceException("Недостаточно звёзд ($currentBalance < $priceStars)"))
+            }
+            val updatedBalance = (currentBalance - priceStars).coerceAtLeast(0L)
+            saveCachedBalance(resolvedId, updatedBalance)
+            _currentUserState.update { curr ->
+                curr?.copy(balance = updatedBalance, updatedAt = now)
+                    ?: KuoteXUserDoc(userId = resolvedId, username = "user", displayName = "User", balance = updatedBalance)
+            }
+            com.example.ui.rating.UserRatingManager.recordMarketOrPaidAction(resolvedId, priceStars.toInt())
+            Result.success(updatedBalance)
+        }
+    }
+
+    /**
+     * Releases 85% creator share to the channel owner when a Suggested Post is accepted/scheduled.
+     */
+    suspend fun creditChannelOwnerSuggestedPost(
+        ownerUserId: String,
+        channelId: String,
+        priceStars: Long,
+        proposalId: String
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        if (priceStars <= 0L) return@withContext Result.success(0L)
+        val ownerShare = ((priceStars * 85L) / 100L).coerceAtLeast(1L)
+        val resolvedOwner = ownerUserId.ifBlank { "me" }
+        val txId = "sp_payout_${proposalId}_${System.currentTimeMillis()}"
+        val now = System.currentTimeMillis()
+        try {
+            val updatedBal = firestore.runTransaction { transaction ->
+                val idemRef = firestore.collection(COLLECTION_IDEMPOTENCY).document("payout_$proposalId")
+                if (transaction.get(idemRef).exists()) {
+                    throw DuplicateTransactionException("Already paid out")
+                }
+                val ownerRef = firestore.collection(COLLECTION_USERS).document(resolvedOwner)
+                val ledgerRef = firestore.collection(COLLECTION_LEDGER_TX).document(txId)
+                val snap = transaction.get(ownerRef)
+                val currentBalance = snap.getLong("balance") ?: (_currentUserState.value?.balance ?: readCachedBalance(resolvedOwner) ?: 1000L)
+                val nextBal = currentBalance + ownerShare
+                transaction.update(ownerRef, mapOf("balance" to nextBal, "updated_at" to now))
+                transaction.set(
+                    ledgerRef,
+                    KuoteXLedgerTxDoc(
+                        txId = txId,
+                        idempotencyKey = "payout_$proposalId",
+                        type = LedgerTransactionType.DIRECT_MESSAGE_STAR.value,
+                        fromUserId = "escrow_channel_$channelId",
+                        toUserId = resolvedOwner,
+                        amount = ownerShare,
+                        status = LedgerTransactionStatus.COMMITTED.value,
+                        metadata = mapOf("channel_id" to channelId, "proposal_id" to proposalId),
+                        createdAt = now
+                    )
+                )
+                transaction.set(idemRef, mapOf("tx_id" to txId, "created_at" to now))
+                nextBal
+            }.await()
+
+            if (_currentUserState.value?.userId == resolvedOwner) {
+                saveCachedBalance(resolvedOwner, updatedBal)
+                _currentUserState.update { it?.copy(balance = updatedBal, updatedAt = now) }
+            }
+            Result.success(ownerShare)
+        } catch (e: Exception) {
+            if (e is DuplicateTransactionException) return@withContext Result.success(0L)
+            if (_currentUserState.value?.userId == resolvedOwner) {
+                val cur = _currentUserState.value?.balance ?: readCachedBalance(resolvedOwner) ?: 1000L
+                val nextBal = cur + ownerShare
+                saveCachedBalance(resolvedOwner, nextBal)
+                _currentUserState.update { it?.copy(balance = nextBal, updatedAt = now) }
+            }
+            Result.success(ownerShare)
+        }
+    }
+
+    /**
+     * Refunds escrowed Stars back to subscriber when an admin declines a Suggested Post.
+     */
+    suspend fun refundSuggestedPostEscrow(
+        subscriberId: String,
+        channelId: String,
+        priceStars: Long,
+        proposalId: String
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        if (priceStars <= 0L) return@withContext Result.success(0L)
+        val resolvedSub = subscriberId.ifBlank { "me" }
+        val txId = "sp_refund_${proposalId}_${System.currentTimeMillis()}"
+        val now = System.currentTimeMillis()
+        try {
+            val newBalance = firestore.runTransaction { transaction ->
+                val idemRef = firestore.collection(COLLECTION_IDEMPOTENCY).document("refund_$proposalId")
+                if (transaction.get(idemRef).exists()) {
+                    throw DuplicateTransactionException("Already refunded")
+                }
+                val userRef = firestore.collection(COLLECTION_USERS).document(resolvedSub)
+                val ledgerRef = firestore.collection(COLLECTION_LEDGER_TX).document(txId)
+                val snap = transaction.get(userRef)
+                val cur = snap.getLong("balance") ?: (_currentUserState.value?.balance ?: readCachedBalance(resolvedSub) ?: 1000L)
+                val nextBal = cur + priceStars
+                transaction.update(userRef, mapOf("balance" to nextBal, "updated_at" to now))
+                transaction.set(
+                    ledgerRef,
+                    KuoteXLedgerTxDoc(
+                        txId = txId,
+                        idempotencyKey = "refund_$proposalId",
+                        type = LedgerTransactionType.DIRECT_MESSAGE_STAR.value,
+                        fromUserId = "escrow_channel_$channelId",
+                        toUserId = resolvedSub,
+                        amount = priceStars,
+                        status = LedgerTransactionStatus.COMMITTED.value,
+                        metadata = mapOf("channel_id" to channelId, "proposal_id" to proposalId, "refund" to true),
+                        createdAt = now
+                    )
+                )
+                transaction.set(idemRef, mapOf("tx_id" to txId, "created_at" to now))
+                nextBal
+            }.await()
+
+            if (_currentUserState.value?.userId == resolvedSub) {
+                saveCachedBalance(resolvedSub, newBalance)
+                _currentUserState.update { it?.copy(balance = newBalance, updatedAt = now) }
+            }
+            Result.success(newBalance)
+        } catch (e: Exception) {
+            if (e is DuplicateTransactionException) return@withContext Result.success(0L)
+            val cur = if (_currentUserState.value?.userId == resolvedSub) {
+                _currentUserState.value?.balance ?: readCachedBalance(resolvedSub) ?: 1000L
+            } else {
+                readCachedBalance(resolvedSub) ?: 1000L
+            }
+            val nextBal = cur + priceStars
+            saveCachedBalance(resolvedSub, nextBal)
+            if (_currentUserState.value?.userId == resolvedSub) {
+                _currentUserState.update { it?.copy(balance = nextBal, updatedAt = now) }
+            }
+            Result.success(nextBal)
+        }
     }
 }

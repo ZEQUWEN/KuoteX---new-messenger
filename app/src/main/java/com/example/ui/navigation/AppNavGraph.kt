@@ -93,8 +93,11 @@ object AppDestinations {
     const val CHANNEL_ADMIN_RECENT_ACTIONS = "channel_admin/{chatId}/recent_actions"
     const val CHANNEL_ADMIN_GREETING = "channel_admin/{chatId}/greeting"
     const val CHANNEL_ADMIN_DIRECT_MESSAGES = "channel_admin/{chatId}/direct_messages"
+    const val CHANNEL_ADMIN_DM_INBOX = "channel_admin/{chatId}/dm_inbox"
+    const val CHANNEL_DIRECT_MESSAGES = "channel_direct_messages/{channelId}?subscriberId={subscriberId}&adminMode={adminMode}"
     const val CHANNEL_APPEARANCE = "channel_appearance/{chatId}"
     const val CHANNEL_BOOST = "channel_boost/{chatId}"
+    const val BUY_STARS = "buy_stars"
     const val GROUP_INVITE_LINKS = "group/{chatId}/invite_links"
     const val GROUP_NEW_INVITE_LINK = "group/{chatId}/invite_links/new"
     const val GROUP_ADD_MEMBERS = "group/{chatId}/add_members"
@@ -123,8 +126,18 @@ object AppDestinations {
     fun channelAdminRecentActions(chatId: String) = "channel_admin/$chatId/recent_actions"
     fun channelAdminGreeting(chatId: String) = "channel_admin/$chatId/greeting"
     fun channelAdminDirectMessages(chatId: String) = "channel_admin/$chatId/direct_messages"
+    fun channelAdminDmInbox(chatId: String) = "channel_admin/$chatId/dm_inbox"
+    fun channelDirectMessages(
+        channelId: String,
+        subscriberId: String? = null,
+        adminMode: Boolean = false
+    ): String {
+        val sub = subscriberId.orEmpty()
+        return "channel_direct_messages/$channelId?subscriberId=$sub&adminMode=$adminMode"
+    }
     fun channelAppearance(chatId: String) = "channel_appearance/$chatId"
     fun channelBoost(chatId: String) = "channel_boost/$chatId"
+    fun buyStars() = BUY_STARS
     fun groupInviteLinks(chatId: String) = "group/$chatId/invite_links"
     fun groupNewInviteLink(chatId: String) = "group/$chatId/invite_links/new"
     fun groupAddMembers(chatId: String) = "group/$chatId/add_members"
@@ -733,6 +746,44 @@ fun MainAppNavGraph(
                     ChannelDirectMessagesScreen(chatId = chatId, navController = navController)
                 }
             }
+        }
+        composable(AppDestinations.CHANNEL_ADMIN_DM_INBOX) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId")
+            if (chatId != null) {
+                ChannelAdminGuard(viewModel = viewModel, chatId = chatId, navController = navController) { _, _, _ ->
+                    ChannelAdminDirectInboxScreen(
+                        viewModel = viewModel,
+                        channelId = chatId,
+                        navController = navController
+                    )
+                }
+            }
+        }
+        composable(
+            route = AppDestinations.CHANNEL_DIRECT_MESSAGES,
+            arguments = listOf(
+                navArgument("subscriberId") { nullable = true; defaultValue = null },
+                navArgument("adminMode") { type = NavType.BoolType; defaultValue = false }
+            )
+        ) { backStackEntry ->
+            val channelId = backStackEntry.arguments?.getString("channelId")
+            val subscriberId = backStackEntry.arguments?.getString("subscriberId")?.takeIf { it.isNotBlank() }
+            val adminMode = backStackEntry.arguments?.getBoolean("adminMode") ?: false
+            if (channelId != null) {
+                ChannelDirectMessagesChatScreen(
+                    viewModel = viewModel,
+                    channelId = channelId,
+                    subscriberId = subscriberId,
+                    isAdminInboxView = adminMode,
+                    navController = navController
+                )
+            }
+        }
+        composable(AppDestinations.BUY_STARS) {
+            com.example.ui.stars.BuyStarsScreen(
+                viewModel = viewModel,
+                navController = navController
+            )
         }
         composable(AppDestinations.CHANNEL_APPEARANCE) { backStackEntry ->
             val chatId = backStackEntry.arguments?.getString("chatId")

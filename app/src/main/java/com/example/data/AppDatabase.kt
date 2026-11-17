@@ -602,7 +602,15 @@ class MessengerRepository(
     suspend fun updatePinnedMessage(chatId: String, messageId: String?) = chatDao.updatePinnedMessage(chatId, messageId)
     suspend fun updatePinStatus(messageId: String, isPinned: Boolean) = messageDao.updatePinStatus(messageId, isPinned)
     suspend fun updateMessageDelivery(messageId: String, isDelivered: Boolean) = messageDao.updateMessageDelivery(messageId, isDelivered)
-        suspend fun updateMessage(message: Message) = messageDao.updateMessage(message)
+    suspend fun updateMessage(message: Message) = messageDao.updateMessage(message)
+    suspend fun updateMessageEncrypted(message: Message) = messageDao.insertMessage(
+        message.copy(
+            text = CryptoManager.encrypt(message.text),
+            audioPath = message.audioPath?.let { CryptoManager.encrypt(it) },
+            mediaPath = message.mediaPath?.let { CryptoManager.encrypt(it) },
+            documentData = message.documentData?.let { CryptoManager.encrypt(it) }
+        )
+    )
     suspend fun getMessageById(messageId: String): Message? = messageDao.getMessageById(messageId)
     suspend fun getChatById(chatId: String): Chat? = chatDao.getChatById(chatId)
 

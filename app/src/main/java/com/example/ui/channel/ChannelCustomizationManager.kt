@@ -178,7 +178,9 @@ object ChannelCustomizationManager {
                         wallpaperCustomUri = if (obj.isNull("wallpaperCustomUri")) null else obj.optString("wallpaperCustomUri", "").ifBlank { null },
                         wallpaperBlur = obj.optDouble("wallpaperBlur", base.wallpaperBlur.toDouble()).toFloat(),
                         wallpaperDim = obj.optDouble("wallpaperDim", base.wallpaperDim.toDouble()).toFloat(),
-                        wallpaperPatternOpacity = obj.optDouble("wallpaperPatternOpacity", base.wallpaperPatternOpacity.toDouble()).toFloat()
+                        wallpaperPatternOpacity = obj.optDouble("wallpaperPatternOpacity", base.wallpaperPatternOpacity.toDouble()).toFloat(),
+                        directMessagesEnabled = obj.optBoolean("directMessagesEnabled", base.directMessagesEnabled),
+                        directMessageStarPrice = obj.optInt("directMessageStarPrice", base.directMessageStarPrice)
                     )
                 }
                 mutable
@@ -205,6 +207,8 @@ object ChannelCustomizationManager {
                     put("wallpaperBlur", c.wallpaperBlur.toDouble())
                     put("wallpaperDim", c.wallpaperDim.toDouble())
                     put("wallpaperPatternOpacity", c.wallpaperPatternOpacity.toDouble())
+                    put("directMessagesEnabled", c.directMessagesEnabled)
+                    put("directMessageStarPrice", c.directMessageStarPrice)
                 }
                 root.put(chatId, obj)
             }
@@ -469,6 +473,7 @@ object ChannelCustomizationManager {
             val current = map[chatId] ?: ChannelCustomization(chatId = chatId)
             map + (chatId to current.copy(directMessagesEnabled = enabled, directMessageStarPrice = starPrice))
         }
+        persistAppearances()
         logAdminAction(
             chatId = chatId,
             title = "Сообщения каналу",

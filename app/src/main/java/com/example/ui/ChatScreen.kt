@@ -253,7 +253,6 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     var selectedMuteDuration by remember { mutableStateOf("30 мин.") }
 
     var showClearHistoryDialog by remember { mutableStateOf(false) }
-    var showChannelMessagesDialog by remember { mutableStateOf(false) }
     var showLeaveChannelDialog by remember { mutableStateOf(false) }
 
     var showBotReportDialog by remember { mutableStateOf(false) }
@@ -849,7 +848,9 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                     isSearchMode = true
                                 },
                                 onViewDiscussion = {
-                                    showChannelMessagesDialog = true
+                                    navController.navigateSafe(
+                                        com.example.ui.navigation.AppDestinations.channelDirectMessages(chat.id)
+                                    )
                                 },
                                 onOpenBoosts = {
                                     navController.navigate("channel_boost/${chat.id}")
@@ -3179,12 +3180,32 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                     }
                                 }
 
+                                val suggestedPayload = remember(message.id, message.documentData) {
+                                    com.example.ui.channel.SuggestedPostPayload.fromJson(message.documentData)
+                                }
+
                                 if (matchedPoll != null) {
                                     PollMessageView(
                                         poll = matchedPoll,
                                         chatId = chatId,
                                         onVote = { optIndex ->
                                             ChannelCustomizationManager.votePoll(chatId, matchedPoll.id, optIndex, matchedPoll.isMultipleChoice)
+                                        },
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                } else if (suggestedPayload != null) {
+                                    com.example.ui.channel.SuggestedPostMessageCard(
+                                        payload = suggestedPayload,
+                                        isMe = isMe,
+                                        isAdminView = isChannelOrGroupAdmin,
+                                        onAcceptPublishNow = {
+                                            viewModel.acceptSuggestedPost(context, chatId, message, false)
+                                        },
+                                        onScheduleForRequestedTime = {
+                                            viewModel.acceptSuggestedPost(context, chatId, message, true)
+                                        },
+                                        onDeclineRefund = {
+                                            viewModel.declineSuggestedPost(chatId, message)
                                         },
                                         modifier = Modifier.padding(vertical = 4.dp)
                                     )
@@ -3715,59 +3736,6 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     viewModel.deleteChat(chatId)
                     navController.popBackStack()
                     android.widget.Toast.makeText(context, "Вы покинули чат", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        if (showChannelMessagesDialog) {
-            var channelMsgText by remember { mutableStateOf("") }
-            AlertDialog(
-                onDismissRequest = { showChannelMessagesDialog = false },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Сообщения каналу")
-                    }
-                },
-                text = {
-                    Column {
-                        Text(
-                            text = "${chat.title} принимает сообщения от подписчиков и предложения для публикаций.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = channelMsgText,
-                            onValueChange = { channelMsgText = it },
-                            placeholder = { Text("Напишите сообщение или вопрос каналу...") },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 90.dp),
-                            maxLines = 4
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            if (channelMsgText.isNotBlank()) {
-                                viewModel.sendMessage(
-                                    chatId = chatId,
-                                    senderId = activeAccount?.id ?: "me",
-                                    text = "📨 [Сообщение каналу]: $channelMsgText"
-                                )
-                                showChannelMessagesDialog = false
-                                android.widget.Toast.makeText(context, "Сообщение отправлено каналу", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    ) {
-                        Text("Отправить")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showChannelMessagesDialog = false }) {
-                        Text("Отмена")
-                    }
                 }
             )
         }
